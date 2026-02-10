@@ -1,6 +1,6 @@
 from source import binance
 from dataloader import order_book, ohlc
-from backtester import evaluate
+from execution import backtester
 from strategy import doublema, stoploss
 
 def main():
@@ -53,7 +53,7 @@ def main():
     # - Max drawdown duration
     # - Sharp ratio
     # - Profit
-    result = evaluate(
+    result = backtester.evaluate(
         ohlc = prices,
         # Prior to the first strategy
         strategies = [
