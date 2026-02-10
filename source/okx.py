@@ -106,11 +106,11 @@ class Client:
 
     Parameters
     ----------
-    API_KEY : str
+    api_key : str
         OKX API key.
-    SECRET_KEY : str
+    secret_key : str
         OKX secret key.
-    PASSPHRASE : str
+    passphrase : str
         OKX API passphrase (set when creating the API key).
     demo : bool
         If ``True``, send the ``x-simulated-trading: 1`` header so all
@@ -119,14 +119,14 @@ class Client:
 
     def __init__(
         self,
-        API_KEY: str,
-        SECRET_KEY: str,
-        PASSPHRASE: str = "",
+        api_key: str,
+        secret_key: str,
+        passphrase: str = "",
         demo: bool = True,
     ):
-        self._api_key = API_KEY
-        self._secret_key = SECRET_KEY
-        self._passphrase = PASSPHRASE
+        self._api_key = api_key
+        self._secret_key = secret_key
+        self._passphrase = passphrase
         self._demo = demo
         self._base_url = _BASE_URL
         self._session = requests.Session()

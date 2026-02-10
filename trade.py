@@ -2,9 +2,9 @@ from source import okx
 
 if __name__ == "__main__":
     client = okx.Client(
-        API_KEY="d009e341-3d49-4f55-b198-548281f1f3b5",
-        SECRET_KEY="136E730027D0803623471CCCDCD54809",
-        PASSPHRASE="Nothing0@0!",
+        api_key="d009e341-3d49-4f55-b198-548281f1f3b5",
+        secret_key="136E730027D0803623471CCCDCD54809",
+        passphrase="Nothing0@0!",
         demo=True,
     )
 
