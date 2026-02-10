@@ -2,12 +2,15 @@
 
 import asyncio
 import base64
+import csv
 import hashlib
 import hmac
 import json
+import os
 import queue
+import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
 import requests
@@ -201,7 +204,15 @@ class Client:
         resp.raise_for_status()
         data = resp.json()
         if data.get("code") != "0":
-            raise OKXError(data.get("code", "?"), data.get("msg", "unknown error"))
+            # Include detailed sub-error from data array if available
+            msg = data.get("msg", "unknown error")
+            if data.get("data"):
+                details = data["data"][0]
+                sub_msg = details.get("sMsg", "")
+                sub_code = details.get("sCode", "")
+                if sub_msg:
+                    msg = f"{msg} | {sub_code}: {sub_msg}"
+            raise OKXError(data.get("code", "?"), msg)
         return data
 
     # ------------------------------------------------------------------
@@ -226,6 +237,27 @@ class Client:
             params["ccy"] = currency.upper()
         data = self._get("/api/v5/account/balance", params or None)
         return data["data"]
+
+    def asset(self, currency: str) -> float:
+        """Get the available balance for a single currency.
+
+        Parameters
+        ----------
+        currency : str
+            Currency code, e.g. ``"USDT"``, ``"ETH"``.
+
+        Returns
+        -------
+        float
+            Available balance.  Returns ``0.0`` if the currency is not
+            found in the account.
+        """
+        data = self.balance(currency)
+        for account in data:
+            for detail in account.get("details", []):
+                if detail.get("ccy", "").upper() == currency.upper():
+                    return float(detail.get("availBal", 0))
+        return 0.0
 
     def positions(self, instrument: str | None = None) -> list[Position]:
         """Get open positions.
@@ -365,6 +397,109 @@ class Client:
         data = self._get("/api/v5/market/candles", params)
         return data["data"]
 
+    def prices(
+        self,
+        instrument: str,
+        bar: str = "1m",
+        duration_from_now: str = "1h",
+        output_dir: str = "data",
+    ) -> str:
+        """Download recent OHLCV candles and save to a CSV file.
+
+        Fetches historical candles covering *duration_from_now* up to the
+        current time, writes them to CSV in the same format used by the
+        Binance data source, and returns the file path.
+
+        Parameters
+        ----------
+        instrument : str
+            Instrument ID, e.g. ``"ETH-USDT"``.
+        bar : str
+            Bar size, e.g. ``"1m"``, ``"5m"``, ``"1H"``, ``"1D"``.
+        duration_from_now : str
+            How far back to fetch, e.g. ``"1h"``, ``"2h"``, ``"1d"``.
+        output_dir : str
+            Directory to write the CSV file into.
+
+        Returns
+        -------
+        str
+            Path to the saved CSV file.
+        """
+        # Parse duration string (e.g. "1h", "30m", "2d") into a timedelta
+        match = re.fullmatch(r"(\d+)\s*([mhdMw])", duration_from_now.strip())
+        if not match:
+            raise ValueError(
+                f"Invalid duration '{duration_from_now}'. "
+                "Use e.g. '30m', '1h', '2d'."
+            )
+        amount, unit = int(match.group(1)), match.group(2)
+        delta_map = {"m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
+        delta = timedelta(**{delta_map[unit]: amount})
+
+        now = datetime.now(timezone.utc)
+        start_ts = int((now - delta).timestamp() * 1000)
+        end_ts = int(now.timestamp() * 1000)
+
+        # OKX returns newest-first and max 300 per request; paginate backwards
+        all_candles: list[list] = []
+        cursor = str(end_ts)
+
+        print(f"Downloading {instrument} ({bar}) last {duration_from_now} …")
+
+        while True:
+            raw = self.candles(
+                instrument=instrument,
+                bar=bar,
+                limit=300,
+                before=str(start_ts - 1),
+                after=cursor,
+            )
+            if not raw:
+                break
+
+            all_candles.extend(raw)
+            oldest_ts = int(raw[-1][0])
+
+            if oldest_ts <= start_ts or len(raw) < 300:
+                break
+
+            cursor = str(oldest_ts)
+
+        # Sort chronologically (oldest first)
+        all_candles.sort(key=lambda c: int(c[0]))
+
+        # Filter to the requested window
+        all_candles = [c for c in all_candles if start_ts <= int(c[0]) <= end_ts]
+
+        print(f"  Fetched {len(all_candles)} candles.")
+
+        # Write CSV
+        os.makedirs(output_dir, exist_ok=True)
+        safe_inst = instrument.replace("-", "")
+        start_str = (now - delta).strftime("%Y-%m-%d")
+        end_str = now.strftime("%Y-%m-%d")
+        filename = f"{safe_inst}_{bar}_{start_str}_{end_str}.csv"
+        filepath = os.path.join(output_dir, filename)
+
+        header = ["timestamp", "open", "high", "low", "close", "volume"]
+        with open(filepath, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            for c in all_candles:
+                dt = datetime.fromtimestamp(int(c[0]) / 1000, tz=timezone.utc)
+                writer.writerow([
+                    dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    c[1],  # open
+                    c[2],  # high
+                    c[3],  # low
+                    c[4],  # close
+                    c[5],  # volume
+                ])
+
+        print(f"  Saved to {filepath}")
+        return filepath
+
     # ------------------------------------------------------------------
     # Trading
     # ------------------------------------------------------------------
@@ -413,8 +548,10 @@ class Client:
             "side": side,
             "ordType": order_type,
             "sz": size,
-            "tgtCcy": target_currency,
         }
+        # tgtCcy is only valid for spot instruments, not SWAP/FUTURES
+        if trade_mode == "cash" and target_currency:
+            body["tgtCcy"] = target_currency
         if price is not None:
             body["px"] = price
         if client_order_id:

@@ -18,11 +18,15 @@ class Strategy:
         Period of the fast (shorter) moving average.
     slow : int | str
         Period of the slow (longer) moving average.
+    source : str
+        Column name to compute moving averages on (default ``"close"``).
+        Can be any OHLCV column, e.g. ``"open"``, ``"high"``, ``"low"``.
     """
 
-    def __init__(self, fast: int | str = 10, slow: int | str = 20):
+    def __init__(self, fast: int | str = 10, slow: int | str = 20, *, source: str):
         self.fast = int(fast)
         self.slow = int(slow)
+        self.source = source
 
         if self.fast >= self.slow:
             raise ValueError(
@@ -30,7 +34,7 @@ class Strategy:
             )
 
     def __repr__(self) -> str:
-        return f"DoubleMA(fast={self.fast}, slow={self.slow})"
+        return f"DoubleMA(fast={self.fast}, slow={self.slow}, source={self.source})"
 
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """Compute moving averages and position signals.
@@ -38,7 +42,7 @@ class Strategy:
         Parameters
         ----------
         df : pd.DataFrame
-            OHLCV DataFrame (must contain a ``close`` column).
+            OHLCV DataFrame (must contain the column specified by *source*).
 
         Returns
         -------
@@ -50,9 +54,12 @@ class Strategy:
             - ``signal`` – raw crossover signal (+1 long, −1 short, 0 no change)
             - ``position`` – held position at each bar (+1 or −1)
         """
+        if self.source not in df.columns:
+            raise ValueError(f"Missing required column: '{self.source}'")
+
         out = df.copy()
-        out["ma_fast"] = out["close"].rolling(window=self.fast).mean()
-        out["ma_slow"] = out["close"].rolling(window=self.slow).mean()
+        out["ma_fast"] = out[self.source].rolling(window=self.fast).mean()
+        out["ma_slow"] = out[self.source].rolling(window=self.slow).mean()
 
         # +1 when fast > slow, -1 when fast < slow
         out["signal"] = 0

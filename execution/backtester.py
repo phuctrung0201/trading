@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 @dataclass
 class Result:
@@ -78,7 +80,14 @@ class Result:
         returns = self.strategy_returns
         capital = equity.iloc[0]
 
-        periods = equity.resample(self.print_interval).last().dropna().index
+        # Normalize shorthand intervals for pandas (e.g. "30m" -> "30min")
+        import re
+        interval = self.print_interval
+        match = re.fullmatch(r"(\d+)m", interval)
+        if match:
+            interval = f"{match.group(1)}min"
+
+        periods = equity.resample(interval).last().dropna().index
 
         for period in periods:
             # Cumulative slice from the start up to the end of this period
@@ -92,6 +101,74 @@ class Result:
             self._print_summary(f"Backtest Result [{label}]", eq_slice, ret_slice, capital)
             print()
 
+    def plot(self, path: str | None = None) -> None:
+        """Plot the backtest equity curve and drawdown.
+
+        Parameters
+        ----------
+        path : str, optional
+            If provided, save the figure to this file path instead of showing it.
+        """
+        equity = self.equity_curve
+        running_max = equity.cummax()
+        drawdown_pct = ((equity - running_max) / running_max) * 100
+
+        fig, (ax1, ax2) = plt.subplots(
+            2, 1, figsize=(14, 7), sharex=True,
+            gridspec_kw={"height_ratios": [3, 1]},
+        )
+        fig.suptitle("Backtest Result", fontsize=14, fontweight="bold")
+
+        # --- Equity curve ---
+        ax1.plot(equity.index, equity, color="#2196F3", linewidth=1.2, label="Equity")
+        ax1.fill_between(equity.index, equity.iloc[0], equity, alpha=0.08, color="#2196F3")
+        ax1.axhline(equity.iloc[0], color="grey", linestyle="--", linewidth=0.8, label="Starting Capital")
+        ax1.set_ylabel("Equity")
+        ax1.legend(loc="upper left", fontsize=9)
+        ax1.grid(True, alpha=0.3)
+
+        # Annotate final profit
+        profit_color = "#4CAF50" if self.profit >= 0 else "#F44336"
+        ax1.annotate(
+            f"Profit: {self.profit:,.2f} ({self.profit_pct:+.2f}%)",
+            xy=(0.99, 0.97), xycoords="axes fraction",
+            ha="right", va="top", fontsize=10, fontweight="bold",
+            color=profit_color,
+        )
+        ax1.annotate(
+            f"Sharpe: {self.sharpe_ratio:.4f}",
+            xy=(0.99, 0.89), xycoords="axes fraction",
+            ha="right", va="top", fontsize=9, color="grey",
+        )
+
+        # --- Drawdown ---
+        ax2.fill_between(drawdown_pct.index, 0, drawdown_pct, color="#F44336", alpha=0.35)
+        ax2.plot(drawdown_pct.index, drawdown_pct, color="#F44336", linewidth=0.8)
+        ax2.set_ylabel("Drawdown (%)")
+        ax2.set_xlabel("Time")
+        ax2.grid(True, alpha=0.3)
+
+        # Annotate max drawdown
+        ax2.annotate(
+            f"Max DD: {self.max_drawdown:,.2f} ({self.max_drawdown_pct:+.2f}%)",
+            xy=(0.99, 0.05), xycoords="axes fraction",
+            ha="right", va="bottom", fontsize=9, fontweight="bold",
+            color="#F44336",
+        )
+
+        # Format x-axis dates
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+        fig.autofmt_xdate(rotation=30)
+
+        plt.tight_layout()
+
+        if path:
+            fig.savefig(path, dpi=150, bbox_inches="tight")
+            print(f"Plot saved to {path}")
+        else:
+            plt.show()
+
+        plt.close(fig)
 
 
 def evaluate(
@@ -134,6 +211,29 @@ def evaluate(
     signals = strategies[-1].generate_signals(ohlc)
     for strategy in strategies[:-1]:
         signals = strategy.generate_signals(signals)
+
+    # ---- Validate position column ----------------------------------------
+    if "position" not in signals.columns:
+        raise ValueError("Strategy pipeline did not produce a 'position' column")
+
+    positions = signals["position"].copy()
+
+    # Replace NaN / inf with 0 (flat)
+    bad_mask = positions.isna() | np.isinf(positions)
+    if bad_mask.any():
+        n_bad = int(bad_mask.sum())
+        print(f"  Warning: {n_bad} NaN/inf positions replaced with 0")
+        positions = positions.fillna(0).replace([np.inf, -np.inf], 0)
+
+    # Normalise to direction (sign) × scale (magnitude)
+    # Standard positions are -1, 0, +1.  Scaled positions (e.g. from
+    # DrawdownScale) can exceed ±1 — the magnitude acts as a leverage
+    # multiplier on returns.
+    max_abs = float(positions.abs().max())
+    if max_abs > 1:
+        print(f"  Note: scaled positions detected (max {max_abs:.2f}x)")
+
+    signals["position"] = positions
 
     # Bar-to-bar percentage returns on the close price
     close_returns = signals["close"].pct_change().fillna(0)
