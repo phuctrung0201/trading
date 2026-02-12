@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from logger import log
 from source.okx import Candle
+from strategy.position import Position, Side
 
 if TYPE_CHECKING:
     from source.okx import Client
@@ -51,7 +51,6 @@ class Result:
     closed: str | None = None
     pnl: float | None = None
     value: float | None = None
-    indicators: dict = field(default_factory=dict)
 
     def __repr__(self) -> str:
         parts = [self.time]
@@ -65,8 +64,6 @@ class Result:
             parts.append(f"V={self.value:.2f}")
         parts.append(f"P={self.price:.2f}")
         parts.append(f"E={self.equity:.2f}")
-        for k, v in self.indicators.items():
-            parts.append(f"{k}={v:.4f}")
         parts.append(f"[{self.position}]")
         return "  ".join(parts)
 
@@ -169,9 +166,6 @@ class NewContext:
 # action – run strategies and execute paper trades
 # ---------------------------------------------------------------------------
 
-_POS_LABEL = {1: "LONG", -1: "SHORT", 0: "FLAT"}
-
-
 def evaluate(
     context: NewContext,
     strategies: list,
@@ -182,8 +176,9 @@ def evaluate(
     The last strategy in *strategies* is the base signal generator;
     earlier entries act as overlays (same convention as the backtester).
 
-    Position sizing is determined by the entry overlay: the magnitude of
-    the ``position`` signal is used as the fraction of capital to allocate.
+    Position sizing is determined by the :class:`Entry` returned by the
+    strategy: ``pos.side`` gives direction, ``pos.size`` gives the
+    fraction of capital to allocate.
 
     A trade is printed whenever the target position differs from the
     current position.  If *okx* is provided, real market orders are
@@ -224,24 +219,18 @@ def evaluate(
     if "position" not in signals.columns:
         return None
 
+    # Build Position from the strategy's latest signal
     raw_position = float(signals["position"].iloc[-1])
+    pos = Position.from_raw(raw_position)
+
     price = float(context.ohlc["close"].iloc[-1])
     ts = context.ohlc.index[-1]
 
-    # Direction: +1 long, -1 short, 0 flat.  Magnitude = scale factor.
-    if raw_position > 0:
-        new_direction = 1
-    elif raw_position < 0:
-        new_direction = -1
-    else:
-        new_direction = 0
-    position_scale = abs(raw_position) if abs(raw_position) > 0 else 1.0
-
-    if new_direction == context.position:
+    if pos.side == context.position:
         return None
 
     instrument = context.instrument
-    position_value = context.capital * position_scale
+    position_value = context.capital * pos.size
 
     closed_label: str | None = None
     pnl: float | None = None
@@ -256,7 +245,7 @@ def evaluate(
             pnl = (context.entry_price - price) / context.entry_price * context.capital * context.entry_scale
 
         context.capital += pnl
-        closed_label = _POS_LABEL[context.position]
+        closed_label = Side(context.position).name
         context.trades.append({
             "time": str(ts),
             "action": "close",
@@ -271,10 +260,10 @@ def evaluate(
             _execute_close(okx, instrument, context)
 
     # -- open new position ------------------------------------------------
-    if new_direction != 0:
+    if not pos.is_flat:
         context.entry_price = price
-        context.entry_scale = position_scale
-        opened_label = _POS_LABEL[new_direction]
+        context.entry_scale = pos.size
+        opened_label = pos.side.name
         open_value = position_value
         context.trades.append({
             "time": str(ts),
@@ -286,32 +275,21 @@ def evaluate(
 
         # Execute open on OKX
         if okx and instrument:
-            _execute_open(okx, instrument, context, new_direction, position_value)
+            _execute_open(okx, instrument, context, int(pos.side), position_value)
     else:
         context.entry_price = None
 
-    context.position = new_direction
-
-    # Collect strategy indicator values from the last row
-    indicator_cols = {"ma_fast", "ma_slow", "ema_short", "ema_long", "macd", "macd_signal", "macd_hist",
-                      "drawdown_pct", "drawup_pct"}
-    indicators = {}
-    for col in indicator_cols:
-        if col in signals.columns:
-            val = signals[col].iloc[-1]
-            if pd.notna(val):
-                indicators[col] = float(val)
+    context.position = int(pos.side)
 
     return Result(
         time=str(ts.tz_localize(None) if hasattr(ts, 'tz_localize') and ts.tzinfo else ts),
         price=price,
-        position=_POS_LABEL[new_direction],
+        position=pos.side.name,
         equity=context.capital,
         opened=opened_label,
         closed=closed_label,
         pnl=pnl,
         value=open_value,
-        indicators=indicators,
     )
 
 

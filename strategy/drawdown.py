@@ -7,6 +7,8 @@ from collections import deque
 import numpy as np
 import pandas as pd
 
+from strategy.position import Position
+
 
 class DrawdownPositionSize:
     """Evaluate multiple signals, pick the best Sharpe, and scale by drawdown.
@@ -64,6 +66,7 @@ class DrawdownPositionSize:
         self.drawdown_window = drawdown_window
         self.reevaluate_threshold = reevaluate_threshold
         self.sharpe_window = sharpe_window
+        self.last_position: Position = Position.flat()
         # Sort descending so the highest (most severe) threshold matches first.
         self.thresh_hold: dict[float, float] = {
             float(k): v for k, v in sorted(size.items(), reverse=True)
@@ -161,4 +164,8 @@ class DrawdownPositionSize:
             positions[i] *= scale
 
         out["position"] = positions
+
+        # Build Entry for the latest bar
+        self.last_position = Position.from_raw(float(positions[-1]))
+
         return out

@@ -8,6 +8,7 @@ import pandas as pd
 import pandas_ta as ta
 
 from logger import log
+from strategy.position import Position
 
 
 class MACross:
@@ -39,6 +40,7 @@ class MACross:
         self.short = int(short)
         self.long = int(long)
         self.source = source
+        self.last_position: Position = Position.flat()
 
         if self.short >= self.long:
             raise ValueError(
@@ -86,13 +88,20 @@ class MACross:
         out["position"] = out["signal"]
         out["position"] = out["position"].replace(0, pd.NA).ffill().fillna(0).astype(int)
 
+        # Build Position for the latest bar
+        last_pos = int(out["position"].iloc[-1])
+        if last_pos == 1:
+            self.last_position = Position.long()
+        elif last_pos == -1:
+            self.last_position = Position.short()
+        else:
+            self.last_position = Position.flat()
+
         # Print EMA values when a crossover fires on the latest bar
         last_signal = out["signal"].iloc[-1]
         if last_signal != 0:
-            side = "LONG" if last_signal == 1 else "SHORT"
-            ema_s = out["ema_short"].iloc[-1]
-            ema_l = out["ema_long"].iloc[-1]
-            log.info(f"MACross({self.short}/{self.long}) → {side}  "
-                     f"ema_short={ema_s:.4f}  ema_long={ema_l:.4f}")
+            log.info(f"MACross({self.short}/{self.long}) → {self.last_position.side.name}  "
+                     f"ema_short={out['ema_short'].iloc[-1]:.4f}  "
+                     f"ema_long={out['ema_long'].iloc[-1]:.4f}")
 
         return out
