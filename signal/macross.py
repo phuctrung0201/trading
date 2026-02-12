@@ -1,6 +1,11 @@
-"""Moving-average crossover (MACROSS) strategy using EMA."""
+"""Moving-average crossover (MACROSS) strategy using EMA.
+
+Uses pandas_ta for EMA calculation, which matches TradingView / OKX charts
+(SMA-seeded, α = 2 / (period + 1)).
+"""
 
 import pandas as pd
+import pandas_ta as ta
 
 
 class MACross:
@@ -12,9 +17,9 @@ class MACross:
     - When the short EMA crosses **below** the long EMA → go **short** (−1).
     - Position is held until the next crossover.
 
-    Unlike the DoubleMA strategy which uses SMA, this strategy uses
-    Exponential Moving Averages (EMA) for faster responsiveness to
-    recent price changes.
+    The EMA is computed using the TradingView / OKX method: seeded with
+    the SMA of the first *period* bars, then applying the standard
+    recursive formula with α = 2 / (period + 1).
 
     Parameters
     ----------
@@ -63,10 +68,10 @@ class MACross:
             raise ValueError(f"Missing required column: '{self.source}'")
 
         out = df.copy()
-        out["ema_short"] = out[self.source].ewm(span=self.short, adjust=False).mean()
-        out["ema_long"] = out[self.source].ewm(span=self.long, adjust=False).mean()
+        out["ema_short"] = ta.ema(out[self.source], length=self.short)
+        out["ema_long"] = ta.ema(out[self.source], length=self.long)
 
-        # Detect crossover points only
+        # Detect crossover points only (NaN-safe)
         diff = out["ema_short"] - out["ema_long"]
         cross_up = (diff > 0) & (diff.shift(1) <= 0)   # short crosses above long
         cross_down = (diff < 0) & (diff.shift(1) >= 0)  # short crosses below long

@@ -49,9 +49,10 @@ _STEP_SECONDS = {
 }
 
 
-def _pair_to_symbol(pair: str) -> str:
-    """Convert a pair like 'ETH/USDT' to Binance symbol 'ETHUSDT'."""
-    return pair.replace("/", "").upper()
+def _instrument_to_symbol(instrument: str) -> str:
+    """Convert an instrument like 'ETH-USDT-SWAP' or 'ETH-USDT' to Binance symbol 'ETHUSDT'."""
+    parts = instrument.split("-")
+    return (parts[0] + parts[1]).upper()
 
 
 def _iso_to_ms(iso: str) -> int:
@@ -71,7 +72,7 @@ def _iso_to_seconds(iso: str) -> float:
 # ---------------------------------------------------------------------------
 
 def price(
-    pair: str,
+    instrument: str,
     start: str,
     end: str,
     step: str = "1h",
@@ -82,8 +83,8 @@ def price(
 
     Parameters
     ----------
-    pair : str
-        Trading pair, e.g. ``"ETH/USDT"``.
+    instrument : str
+        Instrument ID, e.g. ``"ETH-USDT-SWAP"`` or ``"ETH-USDT"``.
     start : str
         ISO-8601 start timestamp (inclusive).
     end : str
@@ -107,16 +108,14 @@ def price(
     if format != "csv":
         raise ValueError(f"Unsupported format '{format}'. Only 'csv' is supported.")
 
-    # Build the output path early so we can check if it already exists
-    safe_pair = pair.replace("/", "").upper()
-    filename = f"{safe_pair}_{step}_{start[:10]}_{end[:10]}.csv"
+    symbol = _instrument_to_symbol(instrument)
+    filename = f"{symbol}_{step}_{start[:10]}_{end[:10]}.csv"
     filepath = os.path.join(output_dir, filename)
 
     if os.path.exists(filepath):
         print(f"File already exists, skipping download: {filepath}")
         return filepath
 
-    symbol = _pair_to_symbol(pair)
     interval = _INTERVAL_MAP[step]
     start_ms = _iso_to_ms(start)
     end_ms = _iso_to_ms(end)
@@ -125,7 +124,7 @@ def price(
     current_start = start_ms
     limit = 1000  # Binance max per request
 
-    print(f"Downloading {pair} ({step}) from {start} to {end} …")
+    print(f"Downloading {instrument} ({step}) from {start} to {end} …")
 
     while current_start < end_ms:
         params = {
@@ -192,7 +191,7 @@ def price(
 # ---------------------------------------------------------------------------
 
 def order_book(
-    pair: str,
+    instrument: str,
     start: str,
     end: str,
     step: str = "30m",
@@ -210,8 +209,8 @@ def order_book(
 
     Parameters
     ----------
-    pair : str
-        Trading pair, e.g. ``"ETH/USDT"``.
+    instrument : str
+        Instrument ID, e.g. ``"ETH-USDT-SWAP"`` or ``"ETH-USDT"``.
     start : str
         ISO-8601 start timestamp (inclusive).
     end : str
@@ -238,15 +237,14 @@ def order_book(
             f"Unsupported step '{step}'. Choose from: {', '.join(_STEP_SECONDS)}"
         )
 
-    safe_pair = pair.replace("/", "").upper()
-    filename = f"{safe_pair}_book_d{depth}_{step}_{start[:10]}_{end[:10]}.csv"
+    symbol = _instrument_to_symbol(instrument)
+    filename = f"{symbol}_book_d{depth}_{step}_{start[:10]}_{end[:10]}.csv"
     filepath = os.path.join(output_dir, filename)
 
     if os.path.exists(filepath):
         print(f"File already exists, skipping download: {filepath}")
         return filepath
 
-    symbol = _pair_to_symbol(pair)
     start_s = _iso_to_seconds(start)
     end_s = _iso_to_seconds(end)
     step_s = _STEP_SECONDS[step]
@@ -256,7 +254,7 @@ def order_book(
     header = ["timestamp", "side", "price", "quantity"]
     rows_written = 0
 
-    print(f"Downloading {pair} order book (depth={depth}, step={step}) …")
+    print(f"Downloading {instrument} order book (depth={depth}, step={step}) …")
 
     with open(filepath, "w", newline="") as f:
         writer = csv.writer(f)

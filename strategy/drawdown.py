@@ -161,4 +161,11 @@ class DrawdownPositionSize:
             positions[i] *= scale
 
         out["position"] = positions
+
+        # Propagate indicator columns from the selected signal
+        selected = signal_results[current_signal_idx]
+        for col in selected.columns:
+            if col not in out.columns:
+                out[col] = selected[col]
+
         return out

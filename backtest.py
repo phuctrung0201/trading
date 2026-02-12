@@ -5,7 +5,7 @@ import setup
 
 def main():
     path = binance.price(
-        pair=setup.pair,
+        instrument=setup.instrument,
         start=setup.start,
         end=setup.end,
         step=setup.step,

@@ -55,7 +55,7 @@ class Position:
     size: str
     avg_price: str
     unrealised_pnl: str
-    leverage: str
+    leverage: float
 
     def __repr__(self) -> str:
         return (
@@ -282,7 +282,7 @@ class Client:
                 size=p.get("pos", "0"),
                 avg_price=p.get("avgPx", "0"),
                 unrealised_pnl=p.get("upl", "0"),
-                leverage=p.get("lever", "0"),
+                leverage=float(p.get("lever", "0")),
             )
             for p in data["data"]
         ]
@@ -290,7 +290,7 @@ class Client:
     def set_leverage(
         self,
         instrument: str,
-        leverage: str,
+        leverage: int,
         margin_mode: str = "cross",
         position_side: str | None = None,
     ) -> dict:
@@ -300,8 +300,8 @@ class Client:
         ----------
         instrument : str
             Instrument ID, e.g. ``"ETH-USDT-SWAP"``.
-        leverage : str
-            Leverage value, e.g. ``"10"``.
+        leverage : int
+            Leverage value, e.g. ``10``.
         margin_mode : str
             ``"cross"`` or ``"isolated"``.
         position_side : str, optional

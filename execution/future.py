@@ -88,8 +88,8 @@ class NewContext:
         have enough bars to generate signals immediately.
     instrument : str
         Instrument ID for order execution, e.g. ``"ETH-USDT-SWAP"``.
-    leverage : str
-        Leverage value, e.g. ``"10"``.
+    leverage : int
+        Leverage value, e.g. ``10``.
     margin_mode : str
         ``"cross"`` or ``"isolated"``.
     """
@@ -97,7 +97,7 @@ class NewContext:
     capital: float = 1000.0
     ohlc: pd.DataFrame | None = None
     instrument: str = ""
-    leverage: str = "10"
+    leverage: int = 10
     margin_mode: str = "cross"
 
     # -- position tracking --
@@ -361,7 +361,6 @@ def _execute_open(
     price = context.entry_price or 1
     contracts = int(position_value / price / 0.01) or 1
     size = str(contracts)
-
     for attempt in range(1, max_retries + 1):
         try:
             order = client.place_order(
@@ -397,7 +396,7 @@ class Future:
     ::
 
         executor = Future(cap=capital, instrument="ETH-USDT-SWAP",
-                          leverage="10", okx=client, ohlc=prices,
+                          leverage=10, okx=client, ohlc=prices,
                           strategy=DrawdownPositionSize(signal=MACross(short=5, long=10), ...))
 
         for candle in channel:
@@ -411,7 +410,7 @@ class Future:
         Starting capital in quote currency.
     instrument : str
         Exchange instrument ID (e.g. ``"ETH-USDT-SWAP"``).
-    leverage : str
+    leverage : int
         Leverage multiplier.
     strategy
         Strategy / risk-management overlay (must contain a signal).
@@ -425,7 +424,7 @@ class Future:
         self,
         cap: float,
         instrument: str,
-        leverage: str,
+        leverage: int,
         strategy,
         okx: "Client | None" = None,
         ohlc: pd.DataFrame | None = None,

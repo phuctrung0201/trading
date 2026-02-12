@@ -125,29 +125,36 @@ class Result:
         ax1.legend(loc="upper left", fontsize=9)
         ax1.grid(True, alpha=0.3)
 
-        # Annotate final profit and Sharpe ratio
-        profit_color = "#4CAF50" if self.profit >= 0 else "#F44336"
+        # Annotate max and min equity
+        max_equity = equity.max()
+        min_equity = equity.min()
         ax1.annotate(
-            f"Profit: {self.profit:,.2f} ({self.profit_pct:+.2f}%)",
+            f"Max Equity: {max_equity:,.2f}",
             xy=(0.99, 0.97), xycoords="axes fraction",
             ha="right", va="top", fontsize=10, fontweight="bold",
-            color=profit_color,
+            color="#4CAF50",
         )
-        sharpe_ann_color = "#4CAF50" if self.sharpe_ratio >= 0 else "#F44336"
         ax1.annotate(
-            f"Sharpe Ratio (Annualized): {self.sharpe_ratio:.4f}",
+            f"Min Equity: {min_equity:,.2f}",
             xy=(0.99, 0.89), xycoords="axes fraction",
             ha="right", va="top", fontsize=10, fontweight="bold",
-            color=sharpe_ann_color,
+            color="#F44336",
         )
         # --- Rolling Sharpe ratio ---
         ax2.plot(rolling_sharpe.index, rolling_sharpe, color="#FF9800", linewidth=1.0, label=f"Rolling Sharpe ({window}-bar)")
         ax2.axhline(1, color="grey", linestyle="--", linewidth=0.8)
         max_sharpe = rolling_sharpe.dropna().max() if rolling_sharpe.dropna().any() else 0.0
         sharpe_color = "#4CAF50" if max_sharpe >= 0 else "#F44336"
+        sharpe_ann_color = "#4CAF50" if self.sharpe_ratio >= 0 else "#F44336"
         ax2.annotate(
-            f"Max Sharpe Ratio: {max_sharpe:.4f}",
+            f"Annualized: {self.sharpe_ratio:.4f}",
             xy=(0.99, 0.97), xycoords="axes fraction",
+            ha="right", va="top", fontsize=10, fontweight="bold",
+            color=sharpe_ann_color,
+        )
+        ax2.annotate(
+            f"Max Rolling: {max_sharpe:.4f}",
+            xy=(0.99, 0.85), xycoords="axes fraction",
             ha="right", va="top", fontsize=10, fontweight="bold",
             color=sharpe_color,
         )

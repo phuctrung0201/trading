@@ -7,11 +7,10 @@ okx_secret_key = "your-secret-key"
 okx_passphrase = "your-passphrase"
 okx_demo = True
 
-pair = "ETH/USDT"
 instrument = "ETH-USDT-SWAP"
 step = "1m"
 cap = 100
-leverage = "10"
+leverage = 10
 
 # Historical period for backtesting
 start = "2025-01-01T00:00:00Z"
