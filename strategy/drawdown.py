@@ -56,12 +56,12 @@ class DrawdownPositionSize:
         self,
         signals: list,
         size: dict[int | float, float],
-        window: int,
+        drawdown_window: int,
         reevaluate_threshold: float = 0.1,
         sharpe_window: int = 1440,
     ) -> None:
         self.signals = signals
-        self.window = window
+        self.window = drawdown_window
         self.reevaluate_threshold = reevaluate_threshold
         self.sharpe_window = sharpe_window
         # Sort descending so the highest (most severe) threshold matches first.

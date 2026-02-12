@@ -35,6 +35,6 @@ strategy = DrawdownPositionSize(
         0.06: 0.02,
     },
     reevaluate_threshold=0.1,
-    window=500,
+    drawdown_window=500,
     sharpe_window=1440,
 )
