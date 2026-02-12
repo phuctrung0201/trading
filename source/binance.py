@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 
 import requests
 
+from logger import log
+
 _KLINES_URL = "https://api.binance.com/api/v3/klines"
 _DEPTH_URL = "https://api.binance.com/api/v3/depth"
 
@@ -113,7 +115,7 @@ def price(
     filepath = os.path.join(output_dir, filename)
 
     if os.path.exists(filepath):
-        print(f"File already exists, skipping download: {filepath}")
+        log.info(f"File already exists, skipping download: {filepath}")
         return filepath
 
     interval = _INTERVAL_MAP[step]
@@ -124,7 +126,7 @@ def price(
     current_start = start_ms
     limit = 1000  # Binance max per request
 
-    print(f"Downloading {instrument} ({step}) from {start} to {end} …")
+    log.info(f"Downloading {instrument} ({step}) from {start} to {end} …")
 
     while current_start < end_ms:
         params = {
@@ -151,7 +153,7 @@ def price(
         # Be polite to the API
         time.sleep(0.2)
 
-    print(f"  Fetched {len(all_candles)} candles.")
+    log.info(f"Fetched {len(all_candles)} candles.")
 
     # ---- Write to CSV ----
     os.makedirs(output_dir, exist_ok=True)
@@ -182,7 +184,7 @@ def price(
                 candle[5],  # volume
             ])
 
-    print(f"  Saved to {filepath}")
+    log.info(f"Saved to {filepath}")
     return filepath
 
 
@@ -242,7 +244,7 @@ def order_book(
     filepath = os.path.join(output_dir, filename)
 
     if os.path.exists(filepath):
-        print(f"File already exists, skipping download: {filepath}")
+        log.info(f"File already exists, skipping download: {filepath}")
         return filepath
 
     start_s = _iso_to_seconds(start)
@@ -254,7 +256,7 @@ def order_book(
     header = ["timestamp", "side", "price", "quantity"]
     rows_written = 0
 
-    print(f"Downloading {instrument} order book (depth={depth}, step={step}) …")
+    log.info(f"Downloading {instrument} order book (depth={depth}, step={step}) …")
 
     with open(filepath, "w", newline="") as f:
         writer = csv.writer(f)
@@ -281,6 +283,6 @@ def order_book(
             ts += step_s
             time.sleep(0.2)
 
-    print(f"  Fetched {rows_written} rows.")
-    print(f"  Saved to {filepath}")
+    log.info(f"Fetched {rows_written} rows.")
+    log.info(f"Saved to {filepath}")
     return filepath

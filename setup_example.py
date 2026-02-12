@@ -1,5 +1,10 @@
 from strategy.drawdown import DrawdownPositionSize
 from signal.macross import MACross
+import logger
+
+# Log level: DEBUG, INFO, TRADE, WARN, ERROR, SILENT
+log_level = "INFO"
+logger.configure(log_level)
 
 # OKX API credentials
 okx_api_key = "your-api-key"

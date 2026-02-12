@@ -1,23 +1,54 @@
+"""Live futures trading via OKX WebSocket candle stream."""
+
 from source import okx
 from dataloader import ohlc
 from execution.future import Future
+from logger import log
 import setup
 
-def main():
-    client = okx.Client(
+
+def connect() -> okx.Client:
+    """Authenticate and return an OKX client."""
+    return okx.Client(
         api_key=setup.okx_api_key,
         secret_key=setup.okx_secret_key,
         passphrase=setup.okx_passphrase,
         demo=setup.okx_demo,
     )
 
-    capital = client.asset("USDT")
-    preload = client.prices(
+
+def preload(client: okx.Client):
+    """Fetch recent candles so the strategy has enough history."""
+    path = client.prices(
         instrument=setup.instrument,
         bar=setup.step,
-        duration_from_now=setup.preload_duration
+        duration_from_now=setup.preload_duration,
     )
-    prices = ohlc.csv(preload)
+    return ohlc.csv(path)
+
+
+def run(client: okx.Client, executor: Future) -> None:
+    """Subscribe to live candles and execute the strategy."""
+    channel = client.subscribe(instrument=setup.instrument, bar=setup.step)
+
+    for candle in channel:
+        if candle.confirm:
+            log.info(candle)
+        else:
+            log.debug(candle)
+
+        executor.ack(candle)
+
+        if candle.confirm:
+            result = executor.exec()
+            if result:
+                log.info(result)
+
+
+def main():
+    client = connect()
+    prices = preload(client)
+    capital = client.asset("USDT")
 
     executor = Future(
         cap=capital,
@@ -28,15 +59,8 @@ def main():
         ohlc=prices,
     )
 
-    # Subscribe to live candles (blocks until Ctrl-C)
-    channel = client.subscribe(instrument=setup.instrument, bar=setup.step)
-    for candle in channel:
-        print(candle)
-        executor.ack(candle)
-        if candle.confirm:
-            result = executor.exec()
-            if result:
-                print(result)
+    run(client, executor)
+
 
 if __name__ == "__main__":
     main()

@@ -7,6 +7,8 @@ Uses pandas_ta for EMA calculation, which matches TradingView / OKX charts
 import pandas as pd
 import pandas_ta as ta
 
+from logger import log
+
 
 class MACross:
     """EMA-based moving-average crossover strategy.
@@ -83,5 +85,14 @@ class MACross:
         # Hold position between crossovers
         out["position"] = out["signal"]
         out["position"] = out["position"].replace(0, pd.NA).ffill().fillna(0).astype(int)
+
+        # Print EMA values when a crossover fires on the latest bar
+        last_signal = out["signal"].iloc[-1]
+        if last_signal != 0:
+            side = "LONG" if last_signal == 1 else "SHORT"
+            ema_s = out["ema_short"].iloc[-1]
+            ema_l = out["ema_long"].iloc[-1]
+            log.info(f"MACross({self.short}/{self.long}) → {side}  "
+                     f"ema_short={ema_s:.4f}  ema_long={ema_l:.4f}")
 
         return out

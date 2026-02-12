@@ -16,6 +16,8 @@ from dataclasses import dataclass
 import requests
 import websockets
 
+from logger import log
+
 _BASE_URL = "https://www.okx.com"
 _WS_BUSINESS_URL = "wss://ws.okx.com/ws/v5/business"
 _WS_DEMO_BUSINESS_URL = "wss://wspap.okx.com:8443/ws/v5/business?brokerId=9999"
@@ -445,7 +447,7 @@ class Client:
         all_candles: list[list] = []
         cursor = str(end_ts)
 
-        print(f"Downloading {instrument} ({bar}) last {duration_from_now} …")
+        log.info(f"Downloading {instrument} ({bar}) last {duration_from_now} …")
 
         while True:
             raw = self.candles(
@@ -472,7 +474,7 @@ class Client:
         # Filter to the requested window
         all_candles = [c for c in all_candles if start_ts <= int(c[0]) <= end_ts]
 
-        print(f"  Fetched {len(all_candles)} candles.")
+        log.info(f"Fetched {len(all_candles)} candles.")
 
         # Write CSV
         os.makedirs(output_dir, exist_ok=True)
@@ -497,7 +499,7 @@ class Client:
                     c[5],  # volume
                 ])
 
-        print(f"  Saved to {filepath}")
+        log.info(f"Saved to {filepath}")
         return filepath
 
     # ------------------------------------------------------------------
@@ -820,7 +822,7 @@ class CandleChannel:
 
         while not self._stopped.is_set():
             try:
-                print(f"Connecting to OKX WebSocket ({self._channel} {self._instrument}) …")
+                log.info(f"Connecting to OKX WebSocket ({self._channel} {self._instrument}) …")
                 async with websockets.connect(
                     self._ws_url, ping_interval=20, open_timeout=10,
                 ) as ws:
@@ -834,7 +836,7 @@ class CandleChannel:
                             resp.get("code", "?"),
                             resp.get("msg", "subscribe failed"),
                         )
-                    print(f"Subscribed to {self._channel} {self._instrument}")
+                    log.info(f"Subscribed to {self._channel} {self._instrument}")
 
                     async for raw in ws:
                         if self._stopped.is_set():
@@ -862,7 +864,7 @@ class CandleChannel:
 
             except (websockets.ConnectionClosed, TimeoutError):
                 if not self._stopped.is_set():
-                    print("WebSocket disconnected, reconnecting in 3s …")
+                    log.warn("WebSocket disconnected, reconnecting in 3s …")
                     await asyncio.sleep(3)
 
         self._queue.put(_SENTINEL)

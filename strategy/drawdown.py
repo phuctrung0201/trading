@@ -61,7 +61,7 @@ class DrawdownPositionSize:
         sharpe_window: int = 1440,
     ) -> None:
         self.signals = signals
-        self.window = drawdown_window
+        self.drawdown_window = drawdown_window
         self.reevaluate_threshold = reevaluate_threshold
         self.sharpe_window = sharpe_window
         # Sort descending so the highest (most severe) threshold matches first.
@@ -126,7 +126,7 @@ class DrawdownPositionSize:
 
         equity = 1.0  # normalised starting equity
         drawdown_pct = 0.0
-        equity_history: deque[float] = deque([equity], maxlen=self.window)
+        equity_history: deque[float] = deque([equity], maxlen=self.drawdown_window)
         peak = equity
         current_signal_idx = 0
 
@@ -161,11 +161,4 @@ class DrawdownPositionSize:
             positions[i] *= scale
 
         out["position"] = positions
-
-        # Propagate indicator columns from the selected signal
-        selected = signal_results[current_signal_idx]
-        for col in selected.columns:
-            if col not in out.columns:
-                out[col] = selected[col]
-
         return out

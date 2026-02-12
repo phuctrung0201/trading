@@ -9,6 +9,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
+from logger import log
+
 @dataclass
 class Result:
     """Container for backtest metrics."""
@@ -20,9 +22,10 @@ class Result:
     max_drawdown_duration: int
     sharpe_ratio: float
     equity_curve: pd.Series
-    prices: pd.Series = None
-    strategy_returns: pd.Series = None
+    prices: pd.Series 
+    strategy_returns: pd.Series 
     sharpe_window: int | None = None
+    drawdown_window: int | None = None
 
     def print(self) -> None:
         """Print a formatted summary of the backtest result."""
@@ -66,7 +69,7 @@ class Result:
         annualisation = np.sqrt(365 * periods_per_day)
         sharpe = (mean_ret / std_ret) * annualisation if std_ret != 0 else 0.0
 
-        print(
+        log.info(
             f"{title}\n"
             f"  Profit:                {profit:,.2f}  ({profit_pct:+.2f}%)\n"
             f"  Max Drawdown:          {max_dd:,.2f}  ({max_dd_pct:+.2f}%)\n"
@@ -172,9 +175,11 @@ class Result:
 
         # --- Drawdown ---
         ax3.fill_between(drawdown_pct.index, 0, drawdown_pct, color="#F44336", alpha=0.35)
-        ax3.plot(drawdown_pct.index, drawdown_pct, color="#F44336", linewidth=0.8)
+        dd_label = f"Drawdown ({self.drawdown_window}-bar)" if self.drawdown_window else "Drawdown"
+        ax3.plot(drawdown_pct.index, drawdown_pct, color="#F44336", linewidth=0.8, label=dd_label)
         ax3.set_ylabel("Drawdown (%)")
         ax3.set_xlabel("Time")
+        ax3.legend(loc="upper left", fontsize=9)
         ax3.grid(True, alpha=0.3)
 
         # Annotate max drawdown
@@ -193,7 +198,7 @@ class Result:
 
         if path:
             fig.savefig(path, dpi=150, bbox_inches="tight")
-            print(f"Plot saved to {path}")
+            log.info(f"Plot saved to {path}")
         else:
             plt.show()
 
@@ -250,7 +255,7 @@ def evaluate(
     bad_mask = positions.isna() | np.isinf(positions)
     if bad_mask.any():
         n_bad = int(bad_mask.sum())
-        print(f"  Warning: {n_bad} NaN/inf positions replaced with 0")
+        log.warn(f"{n_bad} NaN/inf positions replaced with 0")
         positions = positions.fillna(0).replace([np.inf, -np.inf], 0)
 
     # Normalise to direction (sign) × scale (magnitude)
@@ -259,7 +264,7 @@ def evaluate(
     # multiplier on returns.
     max_abs = float(positions.abs().max())
     if max_abs > 1:
-        print(f"  Note: scaled positions detected (max {max_abs:.2f}x)")
+        log.info(f"Scaled positions detected (max {max_abs:.2f}x)")
 
     signals["position"] = positions
 
@@ -412,6 +417,7 @@ class Backtester:
 
         res = evaluate(ohlc, strategies, self.cap)
         res.sharpe_window = self._strategy.sharpe_window
+        res.drawdown_window = self._strategy.drawdown_window
         res.print()
         if path:
             res.plot(path)

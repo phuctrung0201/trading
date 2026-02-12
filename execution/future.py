@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from logger import log
 from source.okx import Candle
 
 if TYPE_CHECKING:
@@ -127,7 +128,7 @@ class NewContext:
             if len(self.ohlc) > 0:
                 self._last_ts = str(self.ohlc.index[-1])
 
-        print(
+        log.info(
             f"Future context: capital={self.capital:.2f}, "
             f"instrument={self.instrument}, leverage={self.leverage}x, "
             f"preloaded={len(self.ohlc)} bars"
@@ -330,7 +331,7 @@ def _execute_close(client: "Client", instrument: str, context: NewContext) -> No
         )
         context.holding_size = "0"
     except Exception as e:
-        print(f"         OKX close position failed: {e}")
+        log.error(f"OKX close position failed: {e}")
 
 
 def _execute_open(
@@ -373,11 +374,11 @@ def _execute_open(
             context.holding_size = size
             return
         except Exception as e:
-            print(f"         OKX order failed (attempt {attempt}/{max_retries}): {type(e).__name__}: {e}")
+            log.error(f"OKX order failed (attempt {attempt}/{max_retries}): {type(e).__name__}: {e}")
             if attempt < max_retries:
                 time.sleep(retry_delay)
 
-    print(f"         OKX order gave up after {max_retries} attempts")
+    log.error(f"OKX order gave up after {max_retries} attempts")
 
 
 # ---------------------------------------------------------------------------
