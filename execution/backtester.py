@@ -21,14 +21,11 @@ class Result:
     sharpe_ratio: float
     equity_curve: pd.Series
     strategy_returns: pd.Series = None
-    print_interval: str | None = None
+    sharpe_window: int | None = None
 
     def print(self) -> None:
         """Print a formatted summary of the backtest result."""
-        if self.print_interval is None:
-            self._print_summary("Backtest Result", self.equity_curve, self.strategy_returns)
-        else:
-            self._print_by_interval()
+        self._print_summary("Backtest Result", self.equity_curve, self.strategy_returns)
 
     def _print_summary(
         self,
@@ -76,33 +73,6 @@ class Result:
             f"  Sharpe Ratio:          {sharpe:.4f}"
         )
 
-    def _print_by_interval(self) -> None:
-        """Print cumulative metrics at the end of each interval period."""
-        equity = self.equity_curve
-        returns = self.strategy_returns
-        capital = equity.iloc[0]
-
-        # Normalize shorthand intervals for pandas (e.g. "30m" -> "30min")
-        import re
-        interval = self.print_interval
-        match = re.fullmatch(r"(\d+)m", interval)
-        if match:
-            interval = f"{match.group(1)}min"
-
-        periods = equity.resample(interval).last().dropna().index
-
-        for period in periods:
-            # Cumulative slice from the start up to the end of this period
-            eq_slice = equity.loc[:period]
-            ret_slice = returns.loc[:period]
-
-            if len(eq_slice) < 2:
-                continue
-
-            label = str(period.date()) if hasattr(period, "date") else str(period)
-            self._print_summary(f"Backtest Result [{label}]", eq_slice, ret_slice, capital)
-            print()
-
     def plot(self, path: str | None = None) -> None:
         """Plot the backtest equity curve and drawdown.
 
@@ -112,12 +82,27 @@ class Result:
             If provided, save the figure to this file path instead of showing it.
         """
         equity = self.equity_curve
+        returns = self.strategy_returns if self.strategy_returns is not None else equity.pct_change().fillna(0)
         running_max = equity.cummax()
         drawdown_pct = ((equity - running_max) / running_max) * 100
 
-        fig, (ax1, ax2) = plt.subplots(
-            2, 1, figsize=(14, 7), sharex=True,
-            gridspec_kw={"height_ratios": [3, 1]},
+        # Rolling annualized Sharpe ratio
+        if len(equity) > 1:
+            total_seconds = (equity.index[-1] - equity.index[0]).total_seconds()
+            bar_seconds = total_seconds / (len(equity) - 1)
+            periods_per_day = 86400 / bar_seconds if bar_seconds > 0 else 1
+        else:
+            periods_per_day = 1
+        annualisation = np.sqrt(365 * periods_per_day)
+        window = self.sharpe_window
+        rolling_mean = returns.rolling(window=window, min_periods=window).mean()
+        rolling_std = returns.rolling(window=window, min_periods=window).std()
+        rolling_sharpe = (rolling_mean / rolling_std) * annualisation
+        rolling_sharpe = rolling_sharpe.replace([np.inf, -np.inf], np.nan)
+
+        fig, (ax1, ax2, ax3) = plt.subplots(
+            3, 1, figsize=(14, 9), sharex=True,
+            gridspec_kw={"height_ratios": [3, 1, 1]},
         )
         fig.suptitle("Backtest Result", fontsize=14, fontweight="bold")
 
@@ -129,7 +114,7 @@ class Result:
         ax1.legend(loc="upper left", fontsize=9)
         ax1.grid(True, alpha=0.3)
 
-        # Annotate final profit
+        # Annotate final profit and Sharpe ratio
         profit_color = "#4CAF50" if self.profit >= 0 else "#F44336"
         ax1.annotate(
             f"Profit: {self.profit:,.2f} ({self.profit_pct:+.2f}%)",
@@ -137,21 +122,45 @@ class Result:
             ha="right", va="top", fontsize=10, fontweight="bold",
             color=profit_color,
         )
+        sharpe_ann_color = "#4CAF50" if self.sharpe_ratio >= 0 else "#F44336"
         ax1.annotate(
-            f"Sharpe: {self.sharpe_ratio:.4f}",
+            f"Sharpe Ratio (Annualized): {self.sharpe_ratio:.4f}",
             xy=(0.99, 0.89), xycoords="axes fraction",
-            ha="right", va="top", fontsize=9, color="grey",
+            ha="right", va="top", fontsize=10, fontweight="bold",
+            color=sharpe_ann_color,
         )
-
-        # --- Drawdown ---
-        ax2.fill_between(drawdown_pct.index, 0, drawdown_pct, color="#F44336", alpha=0.35)
-        ax2.plot(drawdown_pct.index, drawdown_pct, color="#F44336", linewidth=0.8)
-        ax2.set_ylabel("Drawdown (%)")
-        ax2.set_xlabel("Time")
+        # --- Rolling Sharpe ratio ---
+        ax2.plot(rolling_sharpe.index, rolling_sharpe, color="#FF9800", linewidth=1.0, label=f"Rolling Sharpe ({window}-bar)")
+        ax2.axhline(1, color="grey", linestyle="--", linewidth=0.8)
+        max_sharpe = rolling_sharpe.dropna().max() if rolling_sharpe.dropna().any() else 0.0
+        sharpe_color = "#4CAF50" if max_sharpe >= 0 else "#F44336"
+        ax2.annotate(
+            f"Max Sharpe Ratio: {max_sharpe:.4f}",
+            xy=(0.99, 0.97), xycoords="axes fraction",
+            ha="right", va="top", fontsize=10, fontweight="bold",
+            color=sharpe_color,
+        )
+        ax2.fill_between(
+            rolling_sharpe.index, 0, rolling_sharpe,
+            where=rolling_sharpe >= 0, alpha=0.15, color="#4CAF50",
+        )
+        ax2.fill_between(
+            rolling_sharpe.index, 0, rolling_sharpe,
+            where=rolling_sharpe < 0, alpha=0.15, color="#F44336",
+        )
+        ax2.set_ylabel("Sharpe Ratio")
+        ax2.legend(loc="upper left", fontsize=9)
         ax2.grid(True, alpha=0.3)
 
+        # --- Drawdown ---
+        ax3.fill_between(drawdown_pct.index, 0, drawdown_pct, color="#F44336", alpha=0.35)
+        ax3.plot(drawdown_pct.index, drawdown_pct, color="#F44336", linewidth=0.8)
+        ax3.set_ylabel("Drawdown (%)")
+        ax3.set_xlabel("Time")
+        ax3.grid(True, alpha=0.3)
+
         # Annotate max drawdown
-        ax2.annotate(
+        ax3.annotate(
             f"Max DD: {self.max_drawdown:,.2f} ({self.max_drawdown_pct:+.2f}%)",
             xy=(0.99, 0.05), xycoords="axes fraction",
             ha="right", va="bottom", fontsize=9, fontweight="bold",
@@ -159,7 +168,7 @@ class Result:
         )
 
         # Format x-axis dates
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+        ax3.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
         fig.autofmt_xdate(rotation=30)
 
         plt.tight_layout()
@@ -177,7 +186,6 @@ def evaluate(
     ohlc: pd.DataFrame,
     strategies,
     capital: float = 1000.0,
-    print_interval: str | None = None,
 ) -> Result:
     """Run a backtest and return performance metrics.
 
@@ -270,8 +278,13 @@ def evaluate(
         max_drawdown_duration = 0
 
     # ---- Sharpe Ratio ----
-    # Annualised assuming 48 half-hour bars per day (30m candles)
-    periods_per_day = 48
+    # Estimate bars per day from the index
+    if len(equity_curve) > 1:
+        total_seconds = (equity_curve.index[-1] - equity_curve.index[0]).total_seconds()
+        bar_seconds = total_seconds / (len(equity_curve) - 1)
+        periods_per_day = 86400 / bar_seconds if bar_seconds > 0 else 1
+    else:
+        periods_per_day = 1
     annualisation_factor = np.sqrt(365 * periods_per_day)
     mean_return = strategy_returns.mean()
     std_return = strategy_returns.std()
@@ -290,7 +303,6 @@ def evaluate(
         sharpe_ratio=sharpe_ratio,
         equity_curve=equity_curve,
         strategy_returns=strategy_returns,
-        print_interval=print_interval,
     )
 
 
@@ -306,8 +318,8 @@ class Backtester:
     -----
     ::
 
-        bt = Backtester(cap=1000)
-        bt.set_entry(DrawdownPositionSize(strategy=MACross(short=5, long=10), ...))
+        bt = Backtester(cap=1000,
+                        strategy=DrawdownPositionSize(signal=MACross(short=5, long=10), sharpe_window=1440, ...))
 
         for candle in candles:
             bt.ack(candle)
@@ -319,19 +331,15 @@ class Backtester:
     ----------
     cap : float
         Starting capital.
+    strategy
+        Strategy / risk-management overlay (must contain a signal and sharpe_window).
     """
 
-    def __init__(self, cap: float = 1000.0) -> None:
+    def __init__(self, cap: float, strategy) -> None:
         self.cap = cap
-        self._entry = None
+        self._strategy = strategy
         self._rows: list[dict] = []
         self._timestamps: list = []
-
-    # -- configuration ------------------------------------------------------
-
-    def set_entry(self, entry) -> None:
-        """Set the entry / risk-management overlay (must contain a strategy)."""
-        self._entry = entry
 
     # -- streaming API ------------------------------------------------------
 
@@ -381,9 +389,10 @@ class Backtester:
             index=pd.DatetimeIndex(self._timestamps, name="timestamp"),
         )
 
-        strategies = [self._entry, self._entry.signal]
+        strategies = [self._strategy]
 
         res = evaluate(ohlc, strategies, self.cap)
+        res.sharpe_window = self._strategy.sharpe_window
         res.print()
         if path:
             res.plot(path)

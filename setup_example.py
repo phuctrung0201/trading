@@ -2,9 +2,9 @@ from strategy.drawdown import DrawdownPositionSize
 from signal.macross import MACross
 
 # OKX API credentials
-okx_api_key = "d009e341-3d49-4f55-b198-548281f1f3b5"
-okx_secret_key = "136E730027D0803623471CCCDCD54809"
-okx_passphrase = "Nothing0@0!"
+okx_api_key = "your-api-key"
+okx_secret_key = "your-secret-key"
+okx_passphrase = "your-passphrase"
 okx_demo = True
 
 pair = "ETH/USDT"

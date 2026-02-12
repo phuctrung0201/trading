@@ -397,8 +397,8 @@ class Future:
     ::
 
         executor = Future(cap=capital, instrument="ETH-USDT-SWAP",
-                          leverage="10", okx=client, ohlc=prices)
-        executor.set_entry(DrawdownPositionSize(strategy=MACross(short=5, long=10), ...))
+                          leverage="10", okx=client, ohlc=prices,
+                          strategy=DrawdownPositionSize(signal=MACross(short=5, long=10), ...))
 
         for candle in channel:
             executor.ack(candle)
@@ -413,6 +413,8 @@ class Future:
         Exchange instrument ID (e.g. ``"ETH-USDT-SWAP"``).
     leverage : str
         Leverage multiplier.
+    strategy
+        Strategy / risk-management overlay (must contain a signal).
     okx : Client, optional
         OKX client for order execution.
     ohlc : pd.DataFrame, optional
@@ -421,26 +423,21 @@ class Future:
 
     def __init__(
         self,
-        cap: float = 1000.0,
-        instrument: str = "",
-        leverage: str = "10",
+        cap: float,
+        instrument: str,
+        leverage: str,
+        strategy,
         okx: "Client | None" = None,
         ohlc: pd.DataFrame | None = None,
     ) -> None:
         self._okx = okx
-        self._entry = None
+        self._strategy = strategy
         self._context = NewContext(
             capital=cap,
             ohlc=ohlc,
             instrument=instrument,
             leverage=leverage,
         )
-
-    # -- configuration (same as Backtester) ---------------------------------
-
-    def set_entry(self, entry) -> None:
-        """Set the entry / risk-management overlay (must contain a strategy)."""
-        self._entry = entry
 
     # -- streaming API ------------------------------------------------------
 
@@ -456,7 +453,7 @@ class Future:
         Result | None
             A :class:`Result` when a position change occurs, ``None`` otherwise.
         """
-        strategies = [self._entry, self._entry.signal]
+        strategies = [self._strategy]
 
         return evaluate(
             context=self._context,

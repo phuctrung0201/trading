@@ -66,12 +66,16 @@ class MACross:
         out["ema_short"] = out[self.source].ewm(span=self.short, adjust=False).mean()
         out["ema_long"] = out[self.source].ewm(span=self.long, adjust=False).mean()
 
-        # +1 when short EMA > long EMA, -1 when short EMA < long EMA
-        out["signal"] = 0
-        out.loc[out["ema_short"] > out["ema_long"], "signal"] = 1
-        out.loc[out["ema_short"] < out["ema_long"], "signal"] = -1
+        # Detect crossover points only
+        diff = out["ema_short"] - out["ema_long"]
+        cross_up = (diff > 0) & (diff.shift(1) <= 0)   # short crosses above long
+        cross_down = (diff < 0) & (diff.shift(1) >= 0)  # short crosses below long
 
-        # Position changes only on crossovers; forward-fill to hold between them
+        out["signal"] = 0
+        out.loc[cross_up, "signal"] = 1
+        out.loc[cross_down, "signal"] = -1
+
+        # Hold position between crossovers
         out["position"] = out["signal"]
         out["position"] = out["position"].replace(0, pd.NA).ffill().fillna(0).astype(int)
 

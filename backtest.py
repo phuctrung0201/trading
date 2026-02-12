@@ -16,10 +16,9 @@ def main():
     print(candles[:10])
 
     backtester = Backtester(
-        cap=setup.cap
+        cap=setup.cap,
+        strategy=setup.strategy,
     )
-
-    backtester.set_entry(setup.entry)
 
     for _, candle in candles.iterrows():
         backtester.ack(candle)
