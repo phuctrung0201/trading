@@ -1,2 +1,35 @@
-data/
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data
+data/
+
+# Generated artifacts
+*.png
+dashboard/results/
+
+# Credentials / config
+setup.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env

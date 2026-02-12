@@ -20,6 +20,7 @@ class Result:
     max_drawdown_duration: int
     sharpe_ratio: float
     equity_curve: pd.Series
+    prices: pd.Series = None
     strategy_returns: pd.Series = None
     sharpe_window: int | None = None
 
@@ -100,11 +101,21 @@ class Result:
         rolling_sharpe = (rolling_mean / rolling_std) * annualisation
         rolling_sharpe = rolling_sharpe.replace([np.inf, -np.inf], np.nan)
 
-        fig, (ax1, ax2, ax3) = plt.subplots(
-            3, 1, figsize=(14, 9), sharex=True,
-            gridspec_kw={"height_ratios": [3, 1, 1]},
+        fig, (ax0, ax1, ax2, ax3) = plt.subplots(
+            4, 1, figsize=(14, 11), sharex=True,
+            gridspec_kw={"height_ratios": [2, 3, 1, 1]},
         )
         fig.suptitle("Backtest Result", fontsize=14, fontweight="bold")
+
+        # --- Price ---
+        if self.prices is not None:
+            ax0.plot(self.prices.index, self.prices, color="#9C27B0", linewidth=1.0, label="Close Price")
+            ax0.fill_between(self.prices.index, self.prices.min(), self.prices, alpha=0.06, color="#9C27B0")
+            ax0.set_ylabel("Price")
+            ax0.legend(loc="upper left", fontsize=9)
+            ax0.grid(True, alpha=0.3)
+        else:
+            ax0.set_visible(False)
 
         # --- Equity curve ---
         ax1.plot(equity.index, equity, color="#2196F3", linewidth=1.2, label="Equity")
@@ -302,6 +313,7 @@ def evaluate(
         max_drawdown_duration=max_drawdown_duration,
         sharpe_ratio=sharpe_ratio,
         equity_curve=equity_curve,
+        prices=signals["close"],
         strategy_returns=strategy_returns,
     )
 

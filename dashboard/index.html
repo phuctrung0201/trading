@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backtest Dashboard</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  body { font-family: sans-serif; padding: 16px 20px; }
+  .cards { display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .card {
+    flex:1; min-width:150px;
+    border:1px solid #ddd; border-radius:8px; padding:12px 16px;
+  }
+  .card-l {
+    font-size:0.7rem; color:#888;
+    text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;
+  }
+  .card-v { font-size:1.3rem; font-weight:700; }
+  .lbl { font-size:0.75rem; color:#888; text-transform:uppercase; letter-spacing:0.5px; margin:10px 0 4px 0; }
+  .box { border:1px solid #ddd; border-radius:6px; overflow:hidden; }
+  .g { color:#16a34a; }
+  .r { color:#dc2626; }
+  .err { color:#dc2626; text-align:center; padding:80px 0; font-size:1.1rem; }
+  [id^="tv-attr-logo"] { display:none !important; }
+  .selection-overlay {
+    position:absolute; top:0; height:100%;
+    background:rgba(41,98,255,0.15); border-left:1px solid rgba(41,98,255,0.4);
+    border-right:1px solid rgba(41,98,255,0.4); pointer-events:none; z-index:10;
+  }
+  .box { position:relative; }
+</style>
+</head>
+<body>
+
+<h2>Backtest Dashboard</h2>
+<p id="sub" style="color:#888; font-size:0.85rem; margin-bottom:14px;">Loading&hellip;</p>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-l">Net Profit</div>
+    <div class="card-v" id="v-profit">&mdash;</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Max Drawdown</div>
+    <div class="card-v" id="v-dd">&mdash;</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Sharpe Ratio</div>
+    <div class="card-v" id="v-sharpe">&mdash;</div>
+  </div>
+  <div class="card">
+    <div class="card-l">DD Duration</div>
+    <div class="card-v" id="v-dur">&mdash;</div>
+  </div>
+</div>
+
+<div class="lbl">Price</div>
+<div class="box" id="c1" style="height:320px"></div>
+
+<div class="lbl">Equity Curve</div>
+<div class="box" id="c2" style="height:200px"></div>
+
+<div class="lbl">Rolling Sharpe</div>
+<div class="box" id="c3" style="height:180px"></div>
+
+<div class="lbl">Drawdown</div>
+<div class="box" id="c4" style="height:180px"></div>
+
+<script>
+const MAX_POINTS = 5000;
+const EMA_CLR = ['#2962FF','#FF6D00','#AA00FF','#00BFA5','#E91E63','#00B8D4'];
+
+function downsample(arr) {
+  if (arr.length <= MAX_POINTS) return arr;
+  const step = Math.ceil(arr.length / MAX_POINTS);
+  const out = [];
+  for (let i = 0; i < arr.length; i += step) out.push(arr[i]);
+  if (out[out.length - 1] !== arr[arr.length - 1]) out.push(arr[arr.length - 1]);
+  return out;
+}
+
+function makeChart(el) {
+  return LightweightCharts.createChart(el, {
+    width: el.clientWidth,
+    height: el.clientHeight,
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    timeScale: { timeVisible: true, secondsVisible: false },
+    watermark: { visible: false },
+    handleScroll: false,
+    handleScale: { mouseWheel: false, pinch: false, axisPressedMouseMove: false },
+  });
+}
+
+function toTS(s) { return Math.floor(new Date(s).getTime() / 1000); }
+
+async function csv(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error('Missing ' + path);
+  return Papa.parse(await r.text(), {
+    header:true, dynamicTyping:true, skipEmptyLines:true,
+  }).data;
+}
+
+function syncRanges(charts) {
+  let syncing = false;
+  charts.forEach((src, i) => {
+    src.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (syncing || !range) return;
+      syncing = true;
+      charts.forEach((dst, j) => {
+        if (i !== j) dst.timeScale().setVisibleLogicalRange(range);
+      });
+      syncing = false;
+    });
+  });
+}
+
+function syncCrosshair(charts, mainSeries) {
+  charts.forEach((src, i) => {
+    src.subscribeCrosshairMove(param => {
+      charts.forEach((dst, j) => {
+        if (i === j) return;
+        if (param.time !== undefined) {
+          const dp = param.seriesData.get(mainSeries[i]);
+          const val = dp ? (dp.value ?? dp.close) : undefined;
+          if (val !== undefined) {
+            dst.setCrosshairPosition(val, mainSeries[j], param.time);
+          }
+        } else {
+          dst.clearCrosshairPosition();
+        }
+      });
+    });
+  });
+}
+
+(async () => {
+  try {
+    const [priceRows, eqRows, shRows, ddRows, metRows] = await Promise.all([
+      csv('results/price.csv'),
+      csv('results/equity.csv'),
+      csv('results/sharpe.csv'),
+      csv('results/drawdown.csv'),
+      csv('results/metrics.csv'),
+    ]);
+
+    const m = metRows[0], el = id => document.getElementById(id);
+    el('v-profit').textContent = '$' + m.profit.toFixed(2);
+    el('v-profit').className = 'card-v ' + (m.profit >= 0 ? 'g' : 'r');
+    el('v-dd').textContent = m.max_drawdown_pct.toFixed(2) + '%';
+    el('v-dd').className = 'card-v r';
+    el('v-sharpe').textContent = m.sharpe_ratio.toFixed(4);
+    el('v-sharpe').className = 'card-v ' + (m.sharpe_ratio >= 0 ? 'g' : 'r');
+    el('v-dur').textContent = m.max_dd_duration.toLocaleString() + ' bars';
+    el('sub').textContent = priceRows.length.toLocaleString() + ' bars';
+
+    /* chart 1 — price + EMAs */
+    const c1 = makeChart(el('c1'));
+    const closeSeries = c1.addLineSeries({ color:'#333', lineWidth:1, title:'Close' });
+    const priceData = downsample(
+      priceRows.map(r => ({ time: toTS(r.timestamp), value: r.close }))
+    );
+    closeSeries.setData(priceData);
+
+    /* chart 2 — equity */
+    const c2 = makeChart(el('c2'));
+    const eqSeries = c2.addAreaSeries({
+      lineColor:'#2962FF', lineWidth:1.5, title:'Equity',
+      topColor:'rgba(41,98,255,0.18)', bottomColor:'rgba(41,98,255,0.02)',
+    });
+    eqSeries.setData(downsample(
+      eqRows.map(r => ({ time: toTS(r.timestamp), value: r.equity }))
+    ));
+
+    /* chart 3 — rolling sharpe */
+    const c3 = makeChart(el('c3'));
+    const shSeries = c3.addLineSeries({ color:'#FF6D00', lineWidth:1, title:'Sharpe' });
+    shSeries.setData(downsample(
+      shRows.filter(r => typeof r.rolling_sharpe === 'number' && isFinite(r.rolling_sharpe))
+            .map(r => ({ time: toTS(r.timestamp), value: r.rolling_sharpe }))
+    ));
+
+    /* chart 4 — drawdown */
+    const c4 = makeChart(el('c4'));
+    const ddSeries = c4.addAreaSeries({
+      lineColor:'#dc2626', lineWidth:1, title:'DD %',
+      topColor:'rgba(220,38,38,0.2)', bottomColor:'rgba(220,38,38,0.02)',
+      invertFilledArea: true,
+    });
+    ddSeries.setData(downsample(
+      ddRows.map(r => ({ time: toTS(r.timestamp), value: r.drawdown_pct }))
+    ));
+
+    /* fit full time range */
+    const allCharts = [c1, c2, c3, c4];
+    allCharts.forEach(c => c.timeScale().fitContent());
+
+    /* sync */
+    syncRanges(allCharts);
+    syncCrosshair(allCharts, [closeSeries, eqSeries, shSeries, ddSeries]);
+
+    /* drag-to-zoom: click and drag to select a time range */
+    const chartEls = [el('c1'), el('c2'), el('c3'), el('c4')];
+    chartEls.forEach((container, idx) => {
+      let dragging = false, startX = 0;
+      let overlay = null;
+
+      container.addEventListener('mousedown', e => {
+        dragging = true;
+        startX = e.offsetX;
+        overlay = document.createElement('div');
+        overlay.className = 'selection-overlay';
+        overlay.style.left = startX + 'px';
+        overlay.style.width = '0px';
+        container.appendChild(overlay);
+      });
+
+      container.addEventListener('mousemove', e => {
+        if (!dragging || !overlay) return;
+        const curX = e.offsetX;
+        const left = Math.min(startX, curX);
+        const width = Math.abs(curX - startX);
+        overlay.style.left = left + 'px';
+        overlay.style.width = width + 'px';
+      });
+
+      const endDrag = (e) => {
+        if (!dragging || !overlay) return;
+        dragging = false;
+        overlay.remove();
+        overlay = null;
+        const endX = e.offsetX;
+        if (Math.abs(endX - startX) < 10) return; /* ignore tiny drags */
+        const chart = allCharts[idx];
+        const ts = chart.timeScale();
+        const t1 = ts.coordinateToTime(Math.min(startX, endX));
+        const t2 = ts.coordinateToTime(Math.max(startX, endX));
+        if (t1 && t2) {
+          allCharts.forEach(c => {
+            c.timeScale().setVisibleRange({ from: t1, to: t2 });
+          });
+        }
+      };
+
+      container.addEventListener('mouseup', endDrag);
+      container.addEventListener('mouseleave', () => {
+        if (dragging && overlay) { overlay.remove(); overlay = null; dragging = false; }
+      });
+    });
+
+    /* double-click to reset to full range */
+    chartEls.forEach(container => {
+      container.addEventListener('dblclick', () => {
+        allCharts.forEach(c => c.timeScale().fitContent());
+      });
+    });
+
+    window.addEventListener('resize', () => {
+      [[c1,'c1'],[c2,'c2'],[c3,'c3'],[c4,'c4']].forEach(([c, id]) => {
+        c.applyOptions({ width: document.getElementById(id).clientWidth });
+      });
+    });
+
+  } catch (err) {
+    document.getElementById('c1').innerHTML =
+      '<div class="err">' + err.message + '<br><br>Run <code>make backtest</code> first.</div>';
+  }
+})();
+</script>
+</body>
+</html>
