@@ -1,9 +1,9 @@
 from source import okx
-from execution import future
-from strategy import stoploss, drawdownscale
 from dataloader import ohlc
+from execution.future import Future
+import setup
 
-if __name__ == "__main__":
+def main():
     client = okx.Client(
         api_key="d009e341-3d49-4f55-b198-548281f1f3b5",
         secret_key="136E730027D0803623471CCCDCD54809",
@@ -11,44 +11,33 @@ if __name__ == "__main__":
         demo=True,
     )
 
-    instrument = "ETH-USDT-SWAP"
-
     capital = client.asset("USDT")
-    preload = client.prices(instrument=instrument, bar="1m", duration_from_now="6h")
-    prices = ohlc.csv(preload) 
-    context = future.NewContext(
-        capital = capital,
-        ohlc = prices,
-        instrument = instrument,
-        leverage = "10",
+    preload = client.prices(
+        instrument=setup.instrument,
+        bar=setup.step,
+        duration_from_now=setup.preload_duration
+    )
+    prices = ohlc.csv(preload)
+
+    executor = Future(
+        cap=capital,
+        instrument=setup.instrument,
+        leverage=setup.leverage,
+        okx=client,
+        ohlc=prices
     )
 
-    ds = drawdownscale.Strategy(
-        lookback=60,
-        dip_entry_pct=0.5,
-        rally_entry_pct=0.5,
-        full_scale_pct=3.0,
-        max_scale=2.0,
-    )
+    executor.set_entry(setup.entry)
 
-    sl = stoploss.Strategy(
-        percent=10
-    )
-
-    # Stream real-time candles. Blocks until Ctrl-C.
-    channel = client.subscribe(instrument=instrument, bar="1m")
+    # Subscribe to live candles (blocks until Ctrl-C)
+    channel = client.subscribe(instrument=setup.instrument, bar=setup.step)
     for candle in channel:
         print(candle)
-        context.update(candle)
+        executor.ack(candle)
         if candle.confirm:
-            result = future.evaluate(
-                context = context,
-                okx = client,
-                strategies = [
-                    sl,
-                    ds
-                ],
-                value_percent = 10
-            )
+            result = executor.exec()
             if result:
                 print(result)
+
+if __name__ == "__main__":
+    main()

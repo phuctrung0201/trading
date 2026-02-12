@@ -103,6 +103,7 @@ class NewContext:
     # -- position tracking --
     position: int = field(default=0, init=False)       # +1 long, -1 short, 0 flat
     entry_price: float | None = field(default=None, init=False)
+    entry_scale: float = field(default=1.0, init=False)  # position scale at entry
     holding_size: str = field(default="0", init=False)  # actual size on exchange
 
     # -- accounting --
@@ -174,12 +175,14 @@ def evaluate(
     context: NewContext,
     strategies: list,
     okx: "Client | None" = None,
-    value_percent: float = 100,
 ) -> Result | None:
     """Run the strategy pipeline on the current OHLCV data and trade futures.
 
     The last strategy in *strategies* is the base signal generator;
     earlier entries act as overlays (same convention as the backtester).
+
+    Position sizing is determined by the entry overlay: the magnitude of
+    the ``position`` signal is used as the fraction of capital to allocate.
 
     A trade is printed whenever the target position differs from the
     current position.  If *okx* is provided, real market orders are
@@ -193,9 +196,6 @@ def evaluate(
         Strategy instances that implement ``generate_signals(df)``.
     okx : Client, optional
         OKX client instance for order execution.
-    value_percent : float
-        Percentage of capital to use for each position (e.g. 10 means
-        each position uses 10% of capital as notional value).
 
     Returns
     -------
@@ -240,7 +240,7 @@ def evaluate(
         return None
 
     instrument = context.instrument
-    position_value = context.capital * value_percent / 100.0 * position_scale
+    position_value = context.capital * position_scale
 
     closed_label: str | None = None
     pnl: float | None = None
@@ -250,9 +250,9 @@ def evaluate(
     # -- close existing position ------------------------------------------
     if context.position != 0 and context.entry_price is not None:
         if context.position == 1:
-            pnl = (price - context.entry_price) / context.entry_price * context.capital * value_percent / 100.0
+            pnl = (price - context.entry_price) / context.entry_price * context.capital * context.entry_scale
         else:
-            pnl = (context.entry_price - price) / context.entry_price * context.capital * value_percent / 100.0
+            pnl = (context.entry_price - price) / context.entry_price * context.capital * context.entry_scale
 
         context.capital += pnl
         closed_label = _POS_LABEL[context.position]
@@ -272,6 +272,7 @@ def evaluate(
     # -- open new position ------------------------------------------------
     if new_direction != 0:
         context.entry_price = price
+        context.entry_scale = position_scale
         opened_label = _POS_LABEL[new_direction]
         open_value = position_value
         context.trades.append({
@@ -378,3 +379,87 @@ def _execute_open(
                 time.sleep(retry_delay)
 
     print(f"         OKX order gave up after {max_retries} attempts")
+
+
+# ---------------------------------------------------------------------------
+# Future – OO wrapper matching the Backtester interface
+# ---------------------------------------------------------------------------
+
+
+class Future:
+    """Object-oriented futures executor with a streaming candle-by-candle API.
+
+    Mirrors the :class:`~execution.backtester.Backtester` interface so that
+    live-trading scripts follow the same pattern as backtest scripts.
+
+    Usage
+    -----
+    ::
+
+        executor = Future(cap=capital, instrument="ETH-USDT-SWAP",
+                          leverage="10", okx=client, ohlc=prices)
+        executor.set_entry(DrawdownPositionSize(strategy=MACross(short=5, long=10), ...))
+
+        for candle in channel:
+            executor.ack(candle)
+            if candle.confirm:
+                result = executor.exec()
+
+    Parameters
+    ----------
+    cap : float
+        Starting capital in quote currency.
+    instrument : str
+        Exchange instrument ID (e.g. ``"ETH-USDT-SWAP"``).
+    leverage : str
+        Leverage multiplier.
+    okx : Client, optional
+        OKX client for order execution.
+    ohlc : pd.DataFrame, optional
+        Pre-loaded OHLCV data.
+    """
+
+    def __init__(
+        self,
+        cap: float = 1000.0,
+        instrument: str = "",
+        leverage: str = "10",
+        okx: "Client | None" = None,
+        ohlc: pd.DataFrame | None = None,
+    ) -> None:
+        self._okx = okx
+        self._entry = None
+        self._context = NewContext(
+            capital=cap,
+            ohlc=ohlc,
+            instrument=instrument,
+            leverage=leverage,
+        )
+
+    # -- configuration (same as Backtester) ---------------------------------
+
+    def set_entry(self, entry) -> None:
+        """Set the entry / risk-management overlay (must contain a strategy)."""
+        self._entry = entry
+
+    # -- streaming API ------------------------------------------------------
+
+    def ack(self, candle: Candle) -> None:
+        """Add or update a candle in the context."""
+        self._context.update(candle)
+
+    def exec(self) -> Result | None:
+        """Run the strategy pipeline and execute trades.
+
+        Returns
+        -------
+        Result | None
+            A :class:`Result` when a position change occurs, ``None`` otherwise.
+        """
+        strategies = [self._entry, self._entry.signal]
+
+        return evaluate(
+            context=self._context,
+            strategies=strategies,
+            okx=self._okx,
+        )

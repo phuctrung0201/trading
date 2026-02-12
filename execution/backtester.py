@@ -1,5 +1,7 @@
 """Simple backtester that evaluates a strategy on OHLCV data."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 import numpy as np
@@ -290,3 +292,99 @@ def evaluate(
         strategy_returns=strategy_returns,
         print_interval=print_interval,
     )
+
+
+# ---------------------------------------------------------------------------
+# Backtester – OO wrapper for streaming-style backtest
+# ---------------------------------------------------------------------------
+
+
+class Backtester:
+    """Object-oriented backtester with a streaming candle-by-candle API.
+
+    Usage
+    -----
+    ::
+
+        bt = Backtester(cap=1000)
+        bt.set_entry(DrawdownPositionSize(strategy=MACross(short=5, long=10), ...))
+
+        for candle in candles:
+            bt.ack(candle)
+            bt.exec()
+
+        bt.result("result.png")
+
+    Parameters
+    ----------
+    cap : float
+        Starting capital.
+    """
+
+    def __init__(self, cap: float = 1000.0) -> None:
+        self.cap = cap
+        self._entry = None
+        self._rows: list[dict] = []
+        self._timestamps: list = []
+
+    # -- configuration ------------------------------------------------------
+
+    def set_entry(self, entry) -> None:
+        """Set the entry / risk-management overlay (must contain a strategy)."""
+        self._entry = entry
+
+    # -- streaming API ------------------------------------------------------
+
+    def ack(self, candle) -> None:
+        """Add a candle to the internal OHLCV history.
+
+        *candle* can be a ``pd.Series`` whose ``.name`` is the timestamp,
+        a ``dict`` with a ``"timestamp"`` key, or any object with
+        ``timestamp``, ``open``, ``high``, ``low``, ``close``, ``volume``
+        attributes.
+        """
+        if isinstance(candle, pd.Series):
+            ts = candle.name
+            row = {c: candle[c] for c in ("open", "high", "low", "close", "volume") if c in candle.index}
+        elif isinstance(candle, dict):
+            ts = candle.get("timestamp")
+            row = {c: candle[c] for c in ("open", "high", "low", "close", "volume") if c in candle}
+        else:
+            ts = getattr(candle, "timestamp", None)
+            row = {
+                "open": getattr(candle, "open", None),
+                "high": getattr(candle, "high", None),
+                "low": getattr(candle, "low", None),
+                "close": getattr(candle, "close", None),
+                "volume": getattr(candle, "volume", None),
+            }
+
+        self._timestamps.append(pd.Timestamp(ts))
+        self._rows.append({k: float(v) for k, v in row.items()})
+
+    def exec(self) -> None:
+        """Evaluate the latest candle (reserved for incremental logic)."""
+        pass
+
+    # -- results ------------------------------------------------------------
+
+    def result(self, path: str | None = None) -> Result:
+        """Run the full backtest on accumulated data and return metrics.
+
+        Parameters
+        ----------
+        path : str, optional
+            If given, save the equity/drawdown plot to this file path.
+        """
+        ohlc = pd.DataFrame(
+            self._rows,
+            index=pd.DatetimeIndex(self._timestamps, name="timestamp"),
+        )
+
+        strategies = [self._entry, self._entry.signal]
+
+        res = evaluate(ohlc, strategies, self.cap)
+        res.print()
+        if path:
+            res.plot(path)
+        return res

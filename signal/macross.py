@@ -3,7 +3,7 @@
 import pandas as pd
 
 
-class Strategy:
+class MACross:
     """EMA-based moving-average crossover strategy.
 
     Rules
@@ -23,11 +23,12 @@ class Strategy:
     long : int | str
         Period of the long (slower) EMA.
     source : str
-        Column name to compute EMAs on (required).
+        Column name to compute EMAs on.
         Can be any OHLCV column, e.g. ``"close"``, ``"open"``, ``"high"``.
+        Defaults to ``"close"``.
     """
 
-    def __init__(self, short: int | str = 10, long: int | str = 20, *, source: str):
+    def __init__(self, short: int | str = 10, long: int | str = 20, source: str = "close"):
         self.short = int(short)
         self.long = int(long)
         self.source = source
