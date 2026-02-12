@@ -6,7 +6,7 @@ data/
 
 # Generated artifacts
 *.png
-dashboard/results/
+dashboard/
 
 # Credentials
 setup.py
