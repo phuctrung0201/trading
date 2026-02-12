@@ -15,7 +15,7 @@ leverage = "10"
 
 # Historical period for backtesting
 start = "2025-01-01T00:00:00Z"
-end = "2025-02-01T00:00:00Z"
+end = "2025-04-01T00:00:00Z"
 
 # How far back to fetch candles when live trading starts
 preload_duration = "6h"

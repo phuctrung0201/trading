@@ -2,6 +2,8 @@
 
 Algorithmic trading framework for backtesting and live futures execution on crypto exchanges.
 
+![Backtest Results](backtest.png)
+
 ## Project Structure
 
 ```

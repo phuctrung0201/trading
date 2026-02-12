@@ -5,8 +5,7 @@ __pycache__/
 data/
 
 # Generated artifacts
-*.png
-dashboard/
+result*.png
 
 # Credentials
 setup.py
