@@ -27,7 +27,6 @@ preload_duration = "6h"
 # Scale position size down as portfolio drawdown deepens.
 # At 2% drawdown, reduce to 4% size; at 6%, to 2.5%; at 10%, re-evaluate signals.
 strategy = DrawdownPositionSize(
-    # Strategy will evaluate signals to find the best sharp ratio signals.
     signals=[
         MACross(short=15, long=17),
         MACross(short=10, long=17),
@@ -38,7 +37,6 @@ strategy = DrawdownPositionSize(
         0.04: 0.04,
         0.06: 0.02,
     },
-    reevaluate_threshold=0.1,
     drawdown_window=500,
-    sharpe_window=1440,
+    equity=cap,
 )

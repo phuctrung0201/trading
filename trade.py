@@ -2,7 +2,7 @@
 
 from source import okx
 from dataloader import ohlc
-from execution.future import Future
+from executor.future import Future
 from logger import log
 import setup
 
@@ -38,11 +38,6 @@ def run(client: okx.Client, executor: Future) -> None:
             log.debug(candle)
 
         executor.ack(candle)
-
-        if candle.confirm:
-            result = executor.exec()
-            if result:
-                log.info(result)
 
 
 def main():

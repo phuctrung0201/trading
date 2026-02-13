@@ -7,65 +7,14 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from dataloader.ohlc import Candle
+from executor.noaction import NoActionExecution
 from logger import log
-from source.okx import Candle
-from strategy.position import Position, Side
+from source.okx import Candle as OKXCandle
+from strategy.action import Action, NoAction, Open, Close, Adjust, Side
 
 if TYPE_CHECKING:
     from source.okx import Client
-
-
-# ---------------------------------------------------------------------------
-# Result – returned by evaluate() on position changes
-# ---------------------------------------------------------------------------
-
-@dataclass
-class Result:
-    """Summary of a position change produced by :func:`evaluate`.
-
-    Attributes
-    ----------
-    time : str
-        Timestamp of the bar that triggered the change.
-    price : float
-        Close price at which the change occurred.
-    position : str
-        New position label (``"LONG"``, ``"SHORT"``, or ``"FLAT"``).
-    equity : float
-        Account equity after the change.
-    opened : str | None
-        Side that was opened (``"LONG"`` or ``"SHORT"``), or ``None``.
-    closed : str | None
-        Side that was closed, or ``None``.
-    pnl : float | None
-        Realised PnL from closing the previous position, or ``None``.
-    value : float | None
-        Notional value allocated to the new position, or ``None``.
-    """
-
-    time: str
-    price: float
-    position: str
-    equity: float
-    opened: str | None = None
-    closed: str | None = None
-    pnl: float | None = None
-    value: float | None = None
-
-    def __repr__(self) -> str:
-        parts = [self.time]
-        if self.closed:
-            parts.append(f"CLOSE={self.closed}")
-        if self.pnl is not None:
-            parts.append(f"PnL={self.pnl:+.2f}")
-        if self.opened:
-            parts.append(f"OPEN={self.opened}")
-        if self.value is not None:
-            parts.append(f"V={self.value:.2f}")
-        parts.append(f"P={self.price:.2f}")
-        parts.append(f"E={self.equity:.2f}")
-        parts.append(f"[{self.position}]")
-        return "  ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -163,40 +112,24 @@ class NewContext:
 
 
 # ---------------------------------------------------------------------------
-# action – run strategies and execute paper trades
+# execute – carry out an Action returned by a strategy
 # ---------------------------------------------------------------------------
 
-def evaluate(
+def execute(
     context: NewContext,
-    strategies: list,
+    action: Action,
     okx: "Client | None" = None,
-) -> Result | None:
-    """Run the strategy pipeline on the current OHLCV data and trade futures.
-
-    The last strategy in *strategies* is the base signal generator;
-    earlier entries act as overlays (same convention as the backtester).
-
-    Position sizing is determined by the :class:`Entry` returned by the
-    strategy: ``pos.side`` gives direction, ``pos.size`` gives the
-    fraction of capital to allocate.
-
-    A trade is printed whenever the target position differs from the
-    current position.  If *okx* is provided, real market orders are
-    placed on OKX.
+) -> None:
+    """Execute a strategy :class:`Action` against the trading context.
 
     Parameters
     ----------
     context : NewContext
-        Futures trading context (updated via :meth:`NewContext.update`).
-    strategies : list
-        Strategy instances that implement ``generate_signals(df)``.
+        Futures trading context.
+    action : Action
+        The action returned by ``strategy.ack(candle)``.
     okx : Client, optional
         OKX client instance for order execution.
-
-    Returns
-    -------
-    Result | None
-        A :class:`Result` when a position change occurs, ``None`` otherwise.
     """
     # Configure leverage on the exchange once
     if okx and context.instrument and not context._leverage_set:
@@ -207,90 +140,64 @@ def evaluate(
         )
         context._leverage_set = True
 
-    # Need enough bars for the strategy to produce a signal
-    if len(context.ohlc) < 2:
-        return None
-
-    # Run strategy pipeline (last = base, earlier = overlays)
-    signals = strategies[-1].generate_signals(context.ohlc)
-    for strategy in strategies[:-1]:
-        signals = strategy.generate_signals(signals)
-
-    if "position" not in signals.columns:
-        return None
-
-    # Build Position from the strategy's latest signal
-    raw_position = float(signals["position"].iloc[-1])
-    pos = Position.from_raw(raw_position)
+    if isinstance(action, NoAction):
+        return
 
     price = float(context.ohlc["close"].iloc[-1])
     ts = context.ohlc.index[-1]
-
-    if pos.side == context.position:
-        return None
-
     instrument = context.instrument
-    position_value = context.capital * pos.size
 
-    closed_label: str | None = None
-    pnl: float | None = None
-    opened_label: str | None = None
-    open_value: float | None = None
+    # -- close existing position (on Close or Open with existing position) -
+    if isinstance(action, (Close, Open)):
+        if context.position != 0 and context.entry_price is not None:
+            if context.position == 1:
+                pnl = (price - context.entry_price) / context.entry_price * context.capital * context.entry_scale
+            else:
+                pnl = (context.entry_price - price) / context.entry_price * context.capital * context.entry_scale
 
-    # -- close existing position ------------------------------------------
-    if context.position != 0 and context.entry_price is not None:
-        if context.position == 1:
-            pnl = (price - context.entry_price) / context.entry_price * context.capital * context.entry_scale
-        else:
-            pnl = (context.entry_price - price) / context.entry_price * context.capital * context.entry_scale
+            context.capital += pnl
+            closed_label = Side(context.position).name
+            context.trades.append({
+                "time": str(ts),
+                "action": "close",
+                "side": closed_label,
+                "price": price,
+                "pnl": pnl,
+                "equity": context.capital,
+            })
 
-        context.capital += pnl
-        closed_label = Side(context.position).name
-        context.trades.append({
-            "time": str(ts),
-            "action": "close",
-            "side": closed_label,
-            "price": price,
-            "pnl": pnl,
-            "equity": context.capital,
-        })
+            if okx and instrument:
+                _execute_close(okx, instrument, context)
 
-        # Execute close on OKX
-        if okx and instrument:
-            _execute_close(okx, instrument, context)
-
-    # -- open new position ------------------------------------------------
-    if not pos.is_flat:
+    # -- open new position -------------------------------------------------
+    if isinstance(action, Open):
+        pos = action.position
+        position_value = context.capital * pos.size
         context.entry_price = price
         context.entry_scale = pos.size
-        opened_label = pos.side.name
-        open_value = position_value
         context.trades.append({
             "time": str(ts),
             "action": "open",
-            "side": opened_label,
+            "side": pos.side.name,
             "price": price,
             "equity": context.capital,
         })
 
-        # Execute open on OKX
         if okx and instrument:
             _execute_open(okx, instrument, context, int(pos.side), position_value)
-    else:
+
+        context.position = int(pos.side)
+
+    # -- close only --------------------------------------------------------
+    elif isinstance(action, Close):
         context.entry_price = None
+        context.position = 0
 
-    context.position = int(pos.side)
-
-    return Result(
-        time=str(ts.tz_localize(None) if hasattr(ts, 'tz_localize') and ts.tzinfo else ts),
-        price=price,
-        position=pos.side.name,
-        equity=context.capital,
-        opened=opened_label,
-        closed=closed_label,
-        pnl=pnl,
-        value=open_value,
-    )
+    # -- adjust existing position ------------------------------------------
+    elif isinstance(action, Adjust):
+        pos = action.position
+        context.entry_scale = pos.size
+        context.position = int(pos.side)
 
 
 # ---------------------------------------------------------------------------
@@ -321,22 +228,10 @@ def _execute_open(
     max_retries: int = 3,
     retry_delay: float = 2.0,
 ) -> None:
-    """Open a new futures position on OKX with retry on failure.
-
-    Parameters
-    ----------
-    position_value : float
-        Notional value in quote currency (USDT) to allocate to this position.
-    max_retries : int
-        Maximum number of attempts before giving up.
-    retry_delay : float
-        Seconds to wait between retries.
-    """
+    """Open a new futures position on OKX with retry on failure."""
     import time
 
     side = "buy" if position == 1 else "sell"
-    # For SWAP contracts, size is in number of contracts
-    # ETH-USDT-SWAP: 1 contract = 0.01 ETH
     price = context.entry_price or 1
     contracts = int(position_value / price / 0.01) or 1
     size = str(contracts)
@@ -364,24 +259,14 @@ def _execute_open(
 # ---------------------------------------------------------------------------
 
 
-class Future:
-    """Object-oriented futures executor with a streaming candle-by-candle API.
+class Future(NoActionExecution):
+    """Futures executor with a streaming candle-by-candle API.
 
-    Mirrors the :class:`~execution.backtester.Backtester` interface so that
-    live-trading scripts follow the same pattern as backtest scripts.
+    Extends :class:`NoActionExecution` so all executor types share the
+    same ``ack(candle)`` interface.
 
-    Usage
-    -----
-    ::
-
-        executor = Future(cap=capital, instrument="ETH-USDT-SWAP",
-                          leverage=10, okx=client, ohlc=prices,
-                          strategy=DrawdownPositionSize(signal=MACross(short=5, long=10), ...))
-
-        for candle in channel:
-            executor.ack(candle)
-            if candle.confirm:
-                result = executor.exec()
+    On each call to :meth:`ack` it feeds the candle to the strategy
+    and carries out the resulting action.
 
     Parameters
     ----------
@@ -392,11 +277,12 @@ class Future:
     leverage : int
         Leverage multiplier.
     strategy
-        Strategy / risk-management overlay (must contain a signal).
+        Strategy instance whose ``ack`` method returns an Action.
     okx : Client, optional
         OKX client for order execution.
     ohlc : pd.DataFrame, optional
-        Pre-loaded OHLCV data.
+        Pre-loaded OHLCV data fed to the strategy on init so it has
+        enough history to generate signals immediately.
     """
 
     def __init__(
@@ -417,24 +303,15 @@ class Future:
             leverage=leverage,
         )
 
-    # -- streaming API ------------------------------------------------------
+        # Warm up strategy with pre-loaded historical data
+        if ohlc is not None and len(ohlc) > 0:
+            for _, row in ohlc.iterrows():
+                c = Candle.from_series(row)
+                action = self._strategy.ack(c)
+                self._strategy.confirm(action)
 
     def ack(self, candle: Candle) -> None:
-        """Add or update a candle in the context."""
         self._context.update(candle)
-
-    def exec(self) -> Result | None:
-        """Run the strategy pipeline and execute trades.
-
-        Returns
-        -------
-        Result | None
-            A :class:`Result` when a position change occurs, ``None`` otherwise.
-        """
-        strategies = [self._strategy]
-
-        return evaluate(
-            context=self._context,
-            strategies=strategies,
-            okx=self._okx,
-        )
+        action = self._strategy.ack(candle)
+        execute(context=self._context, action=action, okx=self._okx)
+        self._strategy.confirm(action)

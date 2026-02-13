@@ -1,6 +1,79 @@
 """Utilities for loading OHLCV data from CSV files."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+
 import pandas as pd
+
+
+@dataclass(slots=True)
+class Candle:
+    """A single OHLCV bar.
+
+    This is the generic, source-agnostic candle used by the strategy
+    layer.  Exchange-specific candle types (e.g. ``source.okx.Candle``)
+    can be converted via :meth:`from_okx` or by constructing directly.
+
+    Parameters
+    ----------
+    timestamp : str
+        Bar timestamp (ISO-formatted string, e.g. ``"2025-01-15 12:00:00"``).
+    open : float
+        Opening price.
+    high : float
+        Highest price.
+    low : float
+        Lowest price.
+    close : float
+        Closing price.
+    volume : float
+        Trade volume.
+    """
+
+    timestamp: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+    # -- convenience constructors ------------------------------------------
+
+    @classmethod
+    def from_series(cls, series: pd.Series) -> Candle:
+        """Build a Candle from a DataFrame row (``pd.Series``).
+
+        The series index is expected to contain ``open``, ``high``,
+        ``low``, ``close``, ``volume``.  The ``.name`` attribute is
+        used as the timestamp.
+        """
+        return cls(
+            timestamp=str(series.name),
+            open=float(series["open"]),
+            high=float(series["high"]),
+            low=float(series["low"]),
+            close=float(series["close"]),
+            volume=float(series["volume"]),
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Candle:
+        """Build a Candle from a dictionary."""
+        return cls(
+            timestamp=str(data["timestamp"]),
+            open=float(data["open"]),
+            high=float(data["high"]),
+            low=float(data["low"]),
+            close=float(data["close"]),
+            volume=float(data["volume"]),
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.timestamp}  O={self.open:.4f}  H={self.high:.4f}  "
+            f"L={self.low:.4f}  C={self.close:.4f}  V={self.volume:.2f}"
+        )
 
 
 def csv(path: str) -> pd.DataFrame:

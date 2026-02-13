@@ -1,6 +1,6 @@
 # Trading
 
-Algorithmic trading framework for backtesting and live futures execution on crypto exchanges.
+Algorithmic trading framework for backtesting and live futures executor on crypto exchanges.
 
 ![Backtest Results](backtest.png)
 
@@ -16,7 +16,7 @@ trading/
 │   └── macross.py          # EMA crossover signal generator
 ├── strategy/
 │   └── drawdown.py         # Drawdown-aware position sizing with multi-signal selection
-├── execution/
+├── executor/
 │   ├── backtester.py       # Backtester engine (batch evaluation + streaming API)
 │   └── future.py           # Live futures executor (OKX order management)
 ├── source/
@@ -41,9 +41,9 @@ Strategies wrap signals with risk management and signal selection logic.
 
 - **DrawdownPositionSize** — Accepts multiple signals, evaluates each one's rolling Sharpe ratio, and picks the best performer. Position size is scaled down as portfolio drawdown deepens according to configurable thresholds. When drawdown exceeds a re-evaluation threshold, the signal choice is reconsidered.
 
-### Execution
+### Executor
 
-Two execution modes share the same streaming interface (`ack` / `exec`):
+Two executor modes share the same streaming interface (`ack`):
 
 - **Backtester** — Feeds historical candles through the strategy pipeline and produces equity curves, drawdown charts, and Sharpe ratio metrics.
 - **Future** — Connects to OKX for live futures trading. Manages leverage, position tracking, and order execution with retry logic.

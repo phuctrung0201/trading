@@ -1,6 +1,7 @@
 from source import binance
-from dataloader import order_book, ohlc
-from execution.backtester import Backtester
+from dataloader import ohlc
+from dataloader.ohlc import Candle
+from executor.backtester import Backtester
 import setup
 
 def main():
@@ -13,17 +14,10 @@ def main():
     )
     candles = ohlc.csv(path)
 
-    print(candles[:10])
-
-    backtester = Backtester(
-        cap=setup.cap,
-        strategy=setup.strategy,
-    )
-
-    for _, candle in candles.iterrows():
-        backtester.ack(candle)
-        backtester.exec()
-
+    backtester = Backtester(strategy=setup.strategy)
+    for _, row in candles.iterrows():
+        backtester.ack(Candle.from_series(row))
+    backtester.summary()
     backtester.result("backtest.png")
 
 if __name__ == "__main__":

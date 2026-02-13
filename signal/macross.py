@@ -8,7 +8,7 @@ import pandas as pd
 import pandas_ta as ta
 
 from logger import log
-from strategy.position import Position
+from strategy.action import Position
 
 
 class MACross:
@@ -47,8 +47,58 @@ class MACross:
                 f"short period ({self.short}) must be less than long period ({self.long})"
             )
 
+        # Incremental EMA state for step()
+        self._alpha_s = 2.0 / (self.short + 1)
+        self._alpha_l = 2.0 / (self.long + 1)
+        self._ema_s: float = 0.0
+        self._ema_l: float = 0.0
+        self._prev_diff: float = 0.0
+        self._position: int = 0
+        self._bar_count: int = 0
+        self._close_buffer: list[float] = []
+
     def __repr__(self) -> str:
         return f"MACross(short={self.short}, long={self.long}, source={self.source})"
+
+    def step(self, close: float) -> int:
+        """Incrementally update EMAs and return position (+1/-1/0).
+
+        Matches the SMA-seeded EMA used by pandas_ta / TradingView.
+        """
+        self._bar_count += 1
+
+        # Accumulate prices until long EMA can be seeded
+        if self._bar_count <= self.long:
+            self._close_buffer.append(close)
+
+        # Seed / update short EMA
+        if self._bar_count < self.short:
+            return 0
+        elif self._bar_count == self.short:
+            self._ema_s = sum(self._close_buffer) / self.short
+        else:
+            self._ema_s = self._alpha_s * close + (1 - self._alpha_s) * self._ema_s
+
+        # Seed / update long EMA
+        if self._bar_count < self.long:
+            return 0
+        elif self._bar_count == self.long:
+            self._ema_l = sum(self._close_buffer) / self.long
+            self._close_buffer = []  # free memory
+            self._prev_diff = self._ema_s - self._ema_l
+            return self._position  # stays 0 — no crossover on seed bar
+        else:
+            self._ema_l = self._alpha_l * close + (1 - self._alpha_l) * self._ema_l
+
+        # Crossover detection
+        diff = self._ema_s - self._ema_l
+        if diff > 0 and self._prev_diff <= 0:
+            self._position = 1
+        elif diff < 0 and self._prev_diff >= 0:
+            self._position = -1
+        self._prev_diff = diff
+
+        return self._position
 
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """Compute EMA crossover and position signals.
@@ -100,7 +150,7 @@ class MACross:
         # Print EMA values when a crossover fires on the latest bar
         last_signal = out["signal"].iloc[-1]
         if last_signal != 0:
-            log.info(f"MACross({self.short}/{self.long}) → {self.last_position.side.name}  "
+            log.debug(f"MACross({self.short}/{self.long}) → {self.last_position.side.name}  "
                      f"ema_short={out['ema_short'].iloc[-1]:.4f}  "
                      f"ema_long={out['ema_long'].iloc[-1]:.4f}")
 
