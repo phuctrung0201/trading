@@ -4,8 +4,6 @@ services:
     container_name: influxdb
     ports:
       - "8086:8086"
-    volumes:
-      - influxdb-data:/var/lib/influxdb2
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
@@ -37,5 +35,4 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin12345
 
 volumes:
-  influxdb-data:
   monitor-data:

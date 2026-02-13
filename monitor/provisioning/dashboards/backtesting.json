@@ -96,7 +96,10 @@
       "id": 1,
       "options": {
         "legend": {
-          "calcs": [],
+          "calcs": [
+            "min",
+            "max"
+          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -114,7 +117,7 @@
             "type": "influxdb",
             "uid": "P951FEA4DE68E13C5"
           },
-          "query": "from(bucket: \"trading\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"backtest\")\n  |> filter(fn: (r) => r[\"backtest_id\"] == \"${backtest_id}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"drawdown\")\n  |> aggregateWindow(every: v.windowPeriod, fn: max)",
+          "query": "from(bucket: \"trading\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"backtest\")\n  |> filter(fn: (r) => r[\"_field\"] == \"drawdown\" or r[\"_field\"] == \"backtest_id\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.backtest_id and exists r.drawdown)\n  |> filter(fn: (r) => r.backtest_id == \"${backtest_id}\")\n  |> map(fn: (r) => ({_time: r._time, _value: float(v: r.drawdown), _field: \"drawdown\"}))\n  |> aggregateWindow(every: v.windowPeriod, fn: max)",
           "refId": "A"
         }
       ],
@@ -194,7 +197,10 @@
       "id": 2,
       "options": {
         "legend": {
-          "calcs": [],
+          "calcs": [
+            "min",
+            "max"
+          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -212,7 +218,7 @@
             "type": "influxdb",
             "uid": "P951FEA4DE68E13C5"
           },
-          "query": "from(bucket: \"trading\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"backtest\")\n  |> filter(fn: (r) => r[\"backtest_id\"] == \"${backtest_id}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"equity\")\n  |> aggregateWindow(every: v.windowPeriod, fn: max)",
+          "query": "from(bucket: \"trading\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"backtest\")\n  |> filter(fn: (r) => r[\"_field\"] == \"equity\" or r[\"_field\"] == \"backtest_id\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.backtest_id and exists r.equity)\n  |> filter(fn: (r) => r.backtest_id == \"${backtest_id}\")\n  |> map(fn: (r) => ({_time: r._time, _value: float(v: r.equity), _field: \"equity\"}))\n  |> aggregateWindow(every: v.windowPeriod, fn: max)",
           "refId": "A"
         }
       ],
@@ -292,7 +298,10 @@
       "id": 3,
       "options": {
         "legend": {
-          "calcs": [],
+          "calcs": [
+            "min",
+            "max"
+          ],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -310,7 +319,7 @@
             "type": "influxdb",
             "uid": "P951FEA4DE68E13C5"
           },
-          "query": "from(bucket: \"trading\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"backtest\")\n  |> filter(fn: (r) => r[\"backtest_id\"] == \"${backtest_id}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"sharpe_ratio\")\n  |> aggregateWindow(every: v.windowPeriod, fn: min)",
+          "query": "from(bucket: \"trading\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"backtest\")\n  |> filter(fn: (r) => r[\"_field\"] == \"sharpe_ratio\" or r[\"_field\"] == \"backtest_id\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.backtest_id and exists r.sharpe_ratio)\n  |> filter(fn: (r) => r.backtest_id == \"${backtest_id}\")\n  |> map(fn: (r) => ({_time: r._time, _value: float(v: r.sharpe_ratio), _field: \"sharpe_ratio\"}))\n  |> aggregateWindow(every: v.windowPeriod, fn: min)",
           "refId": "A"
         }
       ],
@@ -334,14 +343,14 @@
           "type": "influxdb",
           "uid": "P951FEA4DE68E13C5"
         },
-        "definition": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"trading\", tag: \"backtest_id\", predicate: (r) => r._measurement == \"backtest\", start: 0)",
+        "definition": "from(bucket: \"trading\")\n  |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"backtest\")\n  |> filter(fn: (r) => r._field == \"backtest_id\")\n  |> keep(columns: [\"_value\"])\n  |> group()\n  |> distinct(column: \"_value\")\n  |> sort(columns: [\"_value\"])\n  |> map(fn: (r) => ({_text: string(v: r._value), _value: string(v: r._value)}))",
         "hide": 0,
         "includeAll": false,
         "label": "Backtest ID",
         "multi": false,
         "name": "backtest_id",
         "options": [],
-        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"trading\", tag: \"backtest_id\", predicate: (r) => r._measurement == \"backtest\", start: 0)",
+        "query": "from(bucket: \"trading\")\n  |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"backtest\")\n  |> filter(fn: (r) => r._field == \"backtest_id\")\n  |> keep(columns: [\"_value\"])\n  |> group()\n  |> distinct(column: \"_value\")\n  |> sort(columns: [\"_value\"])\n  |> map(fn: (r) => ({_text: string(v: r._value), _value: string(v: r._value)}))",
         "refresh": 1,
         "skipUrlSync": false,
         "sort": 3,

@@ -69,23 +69,21 @@ class BacktestMeasurement(NoValueMeasurement):
     NAME: ClassVar[str] = "backtest"
     measurement: str
 
-    def __init__(
-        self,
-        *,
-        backtest_id: str,
-    ) -> None:
+    def __init__(self) -> None:
         self.measurement = self.NAME
-        self.tags = {"backtest_id": backtest_id}
+        self.tags = None
 
     def values(
         self,
         *,
+        backtest_id: str,
         timestamp_ns: int,
         drawdown: float,
         equity: float,
         sharpe_ratio: float,
     ) -> MeasurementValue:
         values: dict[str, float | int | str | bool] = {
+            "backtest_id": backtest_id,
             "drawdown": drawdown,
             "equity": equity,
             "sharpe_ratio": sharpe_ratio,

@@ -48,7 +48,7 @@ class Backtester(NoActionExecution):
         self._backtest_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         self._backtest_measurement: BacktestMeasurement | None = None
         if self._influx_client is not None:
-            self._backtest_measurement = BacktestMeasurement(backtest_id=self._backtest_id)
+            self._backtest_measurement = BacktestMeasurement()
         self._equity_history: list[tuple[str, float]] = []
         self._drawdown_history: list[tuple[str, float]] = []
         self._sharpe_history: list[tuple[str, float]] = []
@@ -185,6 +185,7 @@ class Backtester(NoActionExecution):
         if self._influx_client is None or self._backtest_measurement is None:
             return
         value = self._backtest_measurement.values(
+            backtest_id=self._backtest_id,
             timestamp_ns=timestamp_ns,
             drawdown=drawdown,
             equity=equity,

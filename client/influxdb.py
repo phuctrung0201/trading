@@ -29,7 +29,7 @@ class InfluxConfig:
         self.org = "trading"
         self.bucket = "trading"
         self.token = token
-        self.batch_size = 10000
+        self.batch_size = 1000
         self.timeout_seconds = 10.0
         self.flush_interval_seconds = 5.0
 
