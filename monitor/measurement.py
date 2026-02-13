@@ -106,26 +106,61 @@ class TradeMeasurement(NoValueMeasurement):
     NAME: ClassVar[str] = "trade"
     measurement: str
 
-    def __init__(
-        self,
-        *,
-        session_id: str,
-    ) -> None:
+    def __init__(self) -> None:
         self.measurement = self.NAME
-        self.tags = {"session_id": session_id}
+        self.tags = None
 
     def values(
         self,
         *,
         timestamp_ns: int,
+        session_id: str,
         equity: float,
         position_side: str,
         position_size: float,
     ) -> MeasurementValue:
         values: dict[str, float | int | str | bool] = {
+            "session_id": session_id,
             "equity": equity,
             "position_side": position_side,
             "position_size": position_size,
+        }
+
+        return MeasurementValue(
+            measurement=self.measurement,
+            timestamp_ns=timestamp_ns,
+            tags=self.tags,
+            **values,
+        )
+
+
+@dataclass(slots=True)
+class ClientRequestMeasurement(NoValueMeasurement):
+    """Exchange client REST request measurement."""
+
+    NAME: ClassVar[str] = "client_request"
+    measurement: str
+
+    def __init__(
+        self,
+        *,
+        client_name: str,
+    ) -> None:
+        self.measurement = self.NAME
+        self.tags = {
+            "client_name": client_name,
+        }
+
+    def values(
+        self,
+        *,
+        timestamp_ns: int,
+        session_id: str,
+        status_code: int,
+    ) -> MeasurementValue:
+        values: dict[str, float | int | str | bool] = {
+            "session_id": session_id,
+            "status_code": status_code,
         }
 
         return MeasurementValue(

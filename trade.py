@@ -57,6 +57,8 @@ def main():
     client = setup.okx_client()
     prices = preload(client)
     influx_client = _build_influx_client()
+    if influx_client is not None:
+        client.enable_request_monitoring(influx_client)
 
     executor = OkxExcutor(
         instrument=setup.instrument,

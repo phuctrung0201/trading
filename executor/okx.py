@@ -55,15 +55,14 @@ class OkxExcutor(NoActionExecution):
         okx: "Client | None" = None,
         ohlc: pd.DataFrame | None = None,
         influx_client: "InfluxClient | None" = None,
-        session_id: str | None = None,
     ) -> None:
         self._okx = okx
         self._strategy = strategy
         self._influx_client = influx_client
-        self._session_id = session_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self._session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         self._trade_measurement: TradeMeasurement | None = None
         if self._influx_client is not None:
-            self._trade_measurement = TradeMeasurement(session_id=self._session_id)
+            self._trade_measurement = TradeMeasurement()
         self._instrument = instrument
         self._leverage = leverage
         self._margin_mode = "cross"
@@ -90,6 +89,7 @@ class OkxExcutor(NoActionExecution):
         position = self._strategy.current_position()
         self._write_trade_influx(
             timestamp_ns=time.time_ns(),
+            session_id=self._session_id,
             equity=float(self._strategy.current_equity()),
             position_side=position.side.name,
             position_size=float(position.size),
@@ -105,6 +105,7 @@ class OkxExcutor(NoActionExecution):
                 instrument=self._instrument,
                 leverage=self._leverage,
                 margin_mode=self._margin_mode,
+                session_id=self._session_id,
             )
             self._leverage_set = True
 
@@ -186,7 +187,11 @@ class OkxExcutor(NoActionExecution):
         if client is None:
             raise ExecutionError("okx client missing")
         try:
-            client.close_position(instrument=instrument, margin_mode=self._margin_mode)
+            client.close_position(
+                instrument=instrument,
+                margin_mode=self._margin_mode,
+                session_id=self._session_id,
+            )
         except Exception as e:
             log.error(f"OKX close position failed: {e}")
             raise ExecutionError("close position failed") from e
@@ -220,6 +225,7 @@ class OkxExcutor(NoActionExecution):
                     size=size,
                     order_type="market",
                     trade_mode="cross",
+                    session_id=self._session_id,
                 )
                 order_price = self._safe_float(order.price)
                 if order_price is None or order_price <= 0:
@@ -246,14 +252,16 @@ class OkxExcutor(NoActionExecution):
         self,
         *,
         timestamp_ns: int,
+        session_id: str | None,
         equity: float,
         position_side: str,
         position_size: float,
     ) -> None:
-        if self._influx_client is None or self._trade_measurement is None:
+        if self._influx_client is None or self._trade_measurement is None or session_id is None:
             return
         value = self._trade_measurement.values(
             timestamp_ns=timestamp_ns,
+            session_id=session_id,
             equity=equity,
             position_side=position_side,
             position_size=position_size,

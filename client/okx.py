@@ -1,5 +1,7 @@
 """OKX exchange client for demo and live trading via the REST API v5."""
 
+from __future__ import annotations
+
 import asyncio
 import base64
 import csv
@@ -13,11 +15,16 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import requests
 import websockets
 
 from logger import log
+from monitor.measurement import ClientRequestMeasurement
+
+if TYPE_CHECKING:
+    from client.influxdb import InfluxClient
 
 _BASE_URL = "https://www.okx.com"
 _WS_BUSINESS_URL = "wss://ws.okx.com/ws/v5/business"
@@ -129,6 +136,7 @@ class Client:
         secret_key: str,
         passphrase: str = "",
         demo: bool = True,
+        influx_client: InfluxClient | None = None,
     ):
         self._api_key = api_key
         self._secret_key = secret_key
@@ -136,6 +144,40 @@ class Client:
         self._demo = demo
         self._base_url = _BASE_URL
         self._session = requests.Session()
+        self._influx_client = influx_client
+        self._request_measurement: ClientRequestMeasurement | None = None
+        if self._influx_client is not None:
+            self._request_measurement = ClientRequestMeasurement(
+                client_name="okx",
+            )
+
+    def enable_request_monitoring(
+        self,
+        influx_client: InfluxClient,
+    ) -> None:
+        self._influx_client = influx_client
+        self._request_measurement = ClientRequestMeasurement(
+            client_name="okx",
+        )
+
+    def _write_request_measurement(
+        self,
+        *,
+        session_id: str | None,
+        status_code: int,
+    ) -> None:
+        if (
+            self._influx_client is None
+            or self._request_measurement is None
+            or session_id is None
+        ):
+            return
+        value = self._request_measurement.values(
+            timestamp_ns=time.time_ns(),
+            session_id=session_id,
+            status_code=status_code,
+        )
+        self._influx_client.write(value)
 
     # ------------------------------------------------------------------
     # Authentication helpers
@@ -177,8 +219,15 @@ class Client:
     # Low-level request helpers
     # ------------------------------------------------------------------
 
-    def _get(self, path: str, params: dict | None = None) -> dict:
+    def _get(
+        self,
+        path: str,
+        params: dict | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> dict:
         """Authenticated GET request."""
+        status_code = 0
         if params:
             query = "&".join(
                 f"{k}={v}" for k, v in params.items() if v is not None
@@ -187,42 +236,69 @@ class Client:
         else:
             full_path = path
 
-        headers = self._headers("GET", full_path)
-        resp = self._session.get(
-            self._base_url + full_path, headers=headers, timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("code") != "0":
-            raise OKXError(data.get("code", "?"), data.get("msg", "unknown error"))
-        return data
+        try:
+            headers = self._headers("GET", full_path)
+            resp = self._session.get(
+                self._base_url + full_path, headers=headers, timeout=10,
+            )
+            status_code = resp.status_code
+            resp.raise_for_status()
+            data = resp.json()
+            okx_code = str(data.get("code", ""))
+            if okx_code != "0":
+                raise OKXError(okx_code or "?", str(data.get("msg", "unknown error")))
+            return data
+        except Exception:
+            raise
+        finally:
+            self._write_request_measurement(
+                session_id=session_id,
+                status_code=status_code,
+            )
 
-    def _post(self, path: str, body: dict | None = None) -> dict:
+    def _post(
+        self,
+        path: str,
+        body: dict | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> dict:
         """Authenticated POST request."""
+        status_code = 0
         body_str = json.dumps(body) if body else ""
-        headers = self._headers("POST", path, body_str)
-        resp = self._session.post(
-            self._base_url + path, headers=headers, data=body_str, timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("code") != "0":
-            # Include detailed sub-error from data array if available
-            msg = data.get("msg", "unknown error")
-            if data.get("data"):
-                details = data["data"][0]
-                sub_msg = details.get("sMsg", "")
-                sub_code = details.get("sCode", "")
-                if sub_msg:
-                    msg = f"{msg} | {sub_code}: {sub_msg}"
-            raise OKXError(data.get("code", "?"), msg)
-        return data
+        try:
+            headers = self._headers("POST", path, body_str)
+            resp = self._session.post(
+                self._base_url + path, headers=headers, data=body_str, timeout=10,
+            )
+            status_code = resp.status_code
+            resp.raise_for_status()
+            data = resp.json()
+            okx_code = str(data.get("code", ""))
+            if okx_code != "0":
+                # Include detailed sub-error from data array if available
+                msg = data.get("msg", "unknown error")
+                if data.get("data"):
+                    details = data["data"][0]
+                    sub_msg = details.get("sMsg", "")
+                    sub_code = details.get("sCode", "")
+                    if sub_msg:
+                        msg = f"{msg} | {sub_code}: {sub_msg}"
+                raise OKXError(okx_code or "?", str(msg))
+            return data
+        except Exception:
+            raise
+        finally:
+            self._write_request_measurement(
+                session_id=session_id,
+                status_code=status_code,
+            )
 
     # ------------------------------------------------------------------
     # Account
     # ------------------------------------------------------------------
 
-    def balance(self, currency: str | None = None) -> list[dict]:
+    def balance(self, currency: str | None = None, *, session_id: str | None = None) -> list[dict]:
         """Get account balance.
 
         Parameters
@@ -238,10 +314,10 @@ class Client:
         params = {}
         if currency:
             params["ccy"] = currency.upper()
-        data = self._get("/api/v5/account/balance", params or None)
+        data = self._get("/api/v5/account/balance", params or None, session_id=session_id)
         return data["data"]
 
-    def asset(self, currency: str) -> float:
+    def asset(self, currency: str, *, session_id: str | None = None) -> float:
         """Get the available balance for a single currency.
 
         Parameters
@@ -255,14 +331,14 @@ class Client:
             Available balance.  Returns ``0.0`` if the currency is not
             found in the account.
         """
-        data = self.balance(currency)
+        data = self.balance(currency, session_id=session_id)
         for account in data:
             for detail in account.get("details", []):
                 if detail.get("ccy", "").upper() == currency.upper():
                     return float(detail.get("availBal", 0))
         return 0.0
 
-    def positions(self, instrument: str | None = None) -> list[Position]:
+    def positions(self, instrument: str | None = None, *, session_id: str | None = None) -> list[Position]:
         """Get open positions.
 
         Parameters
@@ -277,7 +353,7 @@ class Client:
         params = {}
         if instrument:
             params["instId"] = instrument
-        data = self._get("/api/v5/account/positions", params or None)
+        data = self._get("/api/v5/account/positions", params or None, session_id=session_id)
         return [
             Position(
                 instrument=p["instId"],
@@ -296,6 +372,8 @@ class Client:
         leverage: int,
         margin_mode: str = "cross",
         position_side: str | None = None,
+        *,
+        session_id: str | None = None,
     ) -> dict:
         """Set leverage for an instrument.
 
@@ -321,14 +399,14 @@ class Client:
         }
         if position_side:
             body["posSide"] = position_side
-        data = self._post("/api/v5/account/set-leverage", body)
+        data = self._post("/api/v5/account/set-leverage", body, session_id=session_id)
         return data["data"][0] if data["data"] else {}
 
     # ------------------------------------------------------------------
     # Market data
     # ------------------------------------------------------------------
 
-    def ticker(self, instrument: str) -> dict:
+    def ticker(self, instrument: str, *, session_id: str | None = None) -> dict:
         """Get the latest ticker for an instrument.
 
         Parameters
@@ -341,10 +419,10 @@ class Client:
         dict
             Ticker data including last price, bid/ask, 24h volume, etc.
         """
-        data = self._get("/api/v5/market/ticker", {"instId": instrument})
+        data = self._get("/api/v5/market/ticker", {"instId": instrument}, session_id=session_id)
         return data["data"][0] if data["data"] else {}
 
-    def orderbook(self, instrument: str, depth: int = 20) -> dict:
+    def orderbook(self, instrument: str, depth: int = 20, *, session_id: str | None = None) -> dict:
         """Get order book for an instrument.
 
         Parameters
@@ -360,7 +438,7 @@ class Client:
             Contains ``asks`` and ``bids`` lists.
         """
         data = self._get(
-            "/api/v5/market/books", {"instId": instrument, "sz": str(depth)},
+            "/api/v5/market/books", {"instId": instrument, "sz": str(depth)}, session_id=session_id,
         )
         return data["data"][0] if data["data"] else {}
 
@@ -371,6 +449,8 @@ class Client:
         limit: int = 100,
         after: str | None = None,
         before: str | None = None,
+        *,
+        session_id: str | None = None,
     ) -> list[list]:
         """Get candlestick (OHLCV) data.
 
@@ -397,7 +477,7 @@ class Client:
             params["after"] = after
         if before:
             params["before"] = before
-        data = self._get("/api/v5/market/candles", params)
+        data = self._get("/api/v5/market/candles", params, session_id=session_id)
         return data["data"]
 
     def prices(
@@ -406,6 +486,8 @@ class Client:
         bar: str = "1m",
         duration_from_now: str = "1h",
         output_dir: str = "data",
+        *,
+        session_id: str | None = None,
     ) -> str:
         """Download recent OHLCV candles and save to a CSV file.
 
@@ -457,6 +539,7 @@ class Client:
                 limit=300,
                 before=str(start_ts - 1),
                 after=cursor,
+                session_id=session_id,
             )
             if not raw:
                 break
@@ -526,6 +609,8 @@ class Client:
         trade_mode: str = "cross",
         target_currency: str = "base_ccy",
         client_order_id: str | None = None,
+        *,
+        session_id: str | None = None,
     ) -> Order:
         """Place a new order.
 
@@ -569,7 +654,7 @@ class Client:
         if client_order_id:
             body["clOrdId"] = client_order_id
 
-        data = self._post("/api/v5/trade/order", body)
+        data = self._post("/api/v5/trade/order", body, session_id=session_id)
         info = data["data"][0]
         state = "submitted"
         confirmed_price = self._order_price_from_info(info, fallback=price)
@@ -582,6 +667,7 @@ class Client:
                 detail = self._get(
                     "/api/v5/trade/order",
                     {"instId": instrument, "ordId": order_id},
+                    session_id=session_id,
                 )["data"][0]
                 state = detail.get("state", state)
                 confirmed_price = self._order_price_from_info(
@@ -603,7 +689,7 @@ class Client:
             state=state,
         )
 
-    def cancel_order(self, instrument: str, order_id: str) -> dict:
+    def cancel_order(self, instrument: str, order_id: str, *, session_id: str | None = None) -> dict:
         """Cancel an open order.
 
         Parameters
@@ -618,10 +704,10 @@ class Client:
         dict
         """
         body = {"instId": instrument, "ordId": order_id}
-        data = self._post("/api/v5/trade/cancel-order", body)
+        data = self._post("/api/v5/trade/cancel-order", body, session_id=session_id)
         return data["data"][0]
 
-    def get_order(self, instrument: str, order_id: str) -> Order:
+    def get_order(self, instrument: str, order_id: str, *, session_id: str | None = None) -> Order:
         """Query an order by ID.
 
         Parameters
@@ -636,7 +722,7 @@ class Client:
         Order
         """
         data = self._get(
-            "/api/v5/trade/order", {"instId": instrument, "ordId": order_id},
+            "/api/v5/trade/order", {"instId": instrument, "ordId": order_id}, session_id=session_id,
         )
         info = data["data"][0]
         return Order(
@@ -650,7 +736,7 @@ class Client:
             state=info.get("state", ""),
         )
 
-    def pending_orders(self, instrument: str | None = None) -> list[Order]:
+    def pending_orders(self, instrument: str | None = None, *, session_id: str | None = None) -> list[Order]:
         """Get all pending (open) orders.
 
         Parameters
@@ -665,7 +751,7 @@ class Client:
         params = {}
         if instrument:
             params["instId"] = instrument
-        data = self._get("/api/v5/trade/orders-pending", params or None)
+        data = self._get("/api/v5/trade/orders-pending", params or None, session_id=session_id)
         return [
             Order(
                 order_id=o.get("ordId", ""),
@@ -685,6 +771,8 @@ class Client:
         instrument: str,
         margin_mode: str = "cross",
         position_side: str | None = None,
+        *,
+        session_id: str | None = None,
     ) -> dict:
         """Close an open position.
 
@@ -707,7 +795,7 @@ class Client:
         }
         if position_side:
             body["posSide"] = position_side
-        data = self._post("/api/v5/trade/close-position", body)
+        data = self._post("/api/v5/trade/close-position", body, session_id=session_id)
         return data["data"][0] if data["data"] else {}
 
     def order_history(
@@ -715,6 +803,8 @@ class Client:
         instrument_type: str = "SPOT",
         instrument: str | None = None,
         limit: int = 100,
+        *,
+        session_id: str | None = None,
     ) -> list[Order]:
         """Get recent order history (last 7 days).
 
@@ -734,7 +824,7 @@ class Client:
         params: dict = {"instType": instrument_type, "limit": str(limit)}
         if instrument:
             params["instId"] = instrument
-        data = self._get("/api/v5/trade/orders-history-archive", params)
+        data = self._get("/api/v5/trade/orders-history-archive", params, session_id=session_id)
         return [
             Order(
                 order_id=o.get("ordId", ""),
