@@ -44,7 +44,7 @@ class Backtester(NoActionExecution):
         action = self._strategy.ack(candle)
 
         if isinstance(action, Open):
-            action.position.price = candle.open
+            action.position.price = candle.close
 
         self._strategy.confirm(action)
         self._equity_history.append((candle.timestamp, self._strategy.current_equity()))
