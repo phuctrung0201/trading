@@ -149,17 +149,29 @@ class Open(Action):
     """Open a new position."""
 
     position: Position
+    close_price: float | None = None
 
     def __repr__(self) -> str:
-        return f"Open({self.position})"
+        if self.close_price is None:
+            return f"Open({self.position})"
+        return f"Open({self.position}, close_price={self.close_price:.2f})"
 
 
 @dataclass(slots=True)
 class Close(Action):
     """Close the current position."""
+    position: Position | None = None
+    price: float | None = None
 
     def __repr__(self) -> str:
-        return "Close()"
+        parts: list[str] = []
+        if self.position is not None and not self.position.is_flat:
+            parts.append(f"size={self.position.size:.4g}")
+        if self.price is not None:
+            parts.append(f"price={self.price:.2f}")
+        if not parts:
+            return "Close()"
+        return f"Close({', '.join(parts)})"
 
 
 @dataclass(slots=True)

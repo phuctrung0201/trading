@@ -1,5 +1,5 @@
 from dataloader.ohlc import Candle
-from strategy.action import Action, NoAction
+from strategy.action import Action, NoAction, Position
 
 # Base strategy
 class NoActionStrategy:
@@ -17,3 +17,6 @@ class NoActionStrategy:
 
     def current_equity(self) -> float:
         return self._equity
+
+    def current_position(self) -> Position:
+        return Position.flat()

@@ -29,6 +29,8 @@ class Candle:
         Closing price.
     volume : float
         Trade volume.
+    timestamp_ns : int | None
+        Optional Unix timestamp in nanoseconds for fast downstream writes.
     """
 
     timestamp: str
@@ -37,6 +39,7 @@ class Candle:
     low: float
     close: float
     volume: float
+    timestamp_ns: int | None = None
 
     # -- convenience constructors ------------------------------------------
 
@@ -55,6 +58,7 @@ class Candle:
             low=float(series["low"]),
             close=float(series["close"]),
             volume=float(series["volume"]),
+            timestamp_ns=int(series.name.value) if hasattr(series.name, "value") else None,
         )
 
     @classmethod
@@ -67,6 +71,7 @@ class Candle:
             low=float(data["low"]),
             close=float(data["close"]),
             volume=float(data["volume"]),
+            timestamp_ns=int(data["timestamp_ns"]) if "timestamp_ns" in data and data["timestamp_ns"] is not None else None,
         )
 
     def __repr__(self) -> str:

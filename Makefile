@@ -1,4 +1,4 @@
-.PHONY: trade backtest analysis
+.PHONY: trade backtest monitor
 
 trade:
 	python trade.py
@@ -6,5 +6,6 @@ trade:
 backtest:
 	python backtest.py
 
-analysis:
-	shiny run --app-dir analysis app:app
+monitor:
+	docker-compose up -d influxdb monitor
+	./monitor/provision_dashboard.sh

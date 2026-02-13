@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from datetime import datetime, timezone
+import time
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -10,108 +11,16 @@ import pandas as pd
 from dataloader.ohlc import Candle
 from executor.noaction import NoActionExecution
 from logger import log
-from strategy.action import Action, NoAction, Open, Close, Adjust, Side
+from monitor.measurement import TradeMeasurement
+from strategy.action import Action, NoAction, Open, Close, Adjust
 
 if TYPE_CHECKING:
+    from client.influxdb import InfluxClient
     from client.okx import Client
 
 
 class ExecutionError(Exception):
     """Raised when exchange execution fails."""
-
-
-# ---------------------------------------------------------------------------
-# Context – accumulates candles and tracks paper-trade state
-# ---------------------------------------------------------------------------
-
-@dataclass
-class NewContext:
-    """Futures trading context that holds OHLCV history and position state.
-
-    Parameters
-    ----------
-    capital : float
-        Starting capital in quote currency (e.g. USDT).
-    ohlc : pd.DataFrame, optional
-        Pre-loaded OHLCV DataFrame (e.g. from historical candles).
-        If provided, the context starts with this data so strategies
-        have enough bars to generate signals immediately.
-    instrument : str
-        Instrument ID for order execution, e.g. ``"ETH-USDT-SWAP"``.
-    leverage : int
-        Leverage value, e.g. ``10``.
-    margin_mode : str
-        ``"cross"`` or ``"isolated"``.
-    """
-
-    capital: float = 1000.0
-    ohlc: pd.DataFrame | None = None
-    instrument: str = ""
-    leverage: int = 10
-    margin_mode: str = "cross"
-
-    # -- position tracking --
-    position: int = field(default=0, init=False)       # +1 long, -1 short, 0 flat
-    entry_price: float | None = field(default=None, init=False)
-    entry_scale: float = field(default=1.0, init=False)  # position scale at entry
-    holding_size: str = field(default="0", init=False)  # actual size on exchange
-
-    # -- accounting --
-    initial_capital: float = field(default=0.0, init=False)
-    trades: list = field(default_factory=list, init=False)
-
-    # -- internal state --
-    _last_ts: str | None = field(default=None, init=False, repr=False)
-    _leverage_set: bool = field(default=False, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        self.initial_capital = self.capital
-        if self.ohlc is None:
-            self.ohlc = pd.DataFrame(
-                columns=["open", "high", "low", "close", "volume"],
-            )
-            self.ohlc.index.name = "timestamp"
-        else:
-            # Use a copy so the caller's DataFrame is not mutated
-            self.ohlc = self.ohlc.copy()
-            if len(self.ohlc) > 0:
-                self._last_ts = str(self.ohlc.index[-1])
-
-        log.info(
-            f"Future context: capital={self.capital:.2f}, "
-            f"instrument={self.instrument}, leverage={self.leverage}x, "
-            f"preloaded={len(self.ohlc)} bars"
-        )
-
-    # ------------------------------------------------------------------
-
-    def update(self, candle: Candle) -> None:
-        """Add or update a candle in the OHLCV DataFrame.
-
-        - If the candle has the **same** timestamp as the latest row, the
-          row is updated in place (intra-bar tick).
-        - If it has a **new** timestamp, a new row is appended.
-        """
-        ts = pd.Timestamp(candle.timestamp, tz="UTC")
-        row = {
-            "open": float(candle.open),
-            "high": float(candle.high),
-            "low": float(candle.low),
-            "close": float(candle.close),
-            "volume": float(candle.volume),
-        }
-
-        if self._last_ts == candle.timestamp:
-            # Same candle – update in place
-            self.ohlc.loc[ts] = row
-        else:
-            # New candle
-            self._last_ts = candle.timestamp
-            new_row = pd.DataFrame(
-                [row],
-                index=pd.DatetimeIndex([ts], name="timestamp"),
-            )
-            self.ohlc = pd.concat([self.ohlc, new_row])
 
 
 class OkxExcutor(NoActionExecution):
@@ -125,8 +34,6 @@ class OkxExcutor(NoActionExecution):
 
     Parameters
     ----------
-    cap : float
-        Starting capital in quote currency.
     instrument : str
         Exchange instrument ID (e.g. ``"ETH-USDT-SWAP"``).
     leverage : int
@@ -142,20 +49,31 @@ class OkxExcutor(NoActionExecution):
 
     def __init__(
         self,
-        cap: float,
         instrument: str,
         leverage: int,
         strategy,
         okx: "Client | None" = None,
         ohlc: pd.DataFrame | None = None,
+        influx_client: "InfluxClient | None" = None,
+        session_id: str | None = None,
     ) -> None:
         self._okx = okx
         self._strategy = strategy
-        self._context = NewContext(
-            capital=cap,
-            ohlc=ohlc,
-            instrument=instrument,
-            leverage=leverage,
+        self._influx_client = influx_client
+        self._session_id = session_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self._trade_measurement: TradeMeasurement | None = None
+        if self._influx_client is not None:
+            self._trade_measurement = TradeMeasurement(session_id=self._session_id)
+        self._instrument = instrument
+        self._leverage = leverage
+        self._margin_mode = "cross"
+        self._leverage_set = False
+        starting_equity = float(self._strategy.current_equity())
+
+        log.info(
+            f"Future executor: equity={starting_equity:.2f}, "
+            f"instrument={self._instrument}, leverage={self._leverage}x, "
+            f"preloaded={len(ohlc) if ohlc is not None else 0} bars"
         )
 
         # Warm up strategy with pre-loaded historical data
@@ -166,53 +84,72 @@ class OkxExcutor(NoActionExecution):
                 self._strategy.confirm(action)
 
     def ack(self, candle: Candle) -> None:
-        self._context.update(candle)
         action = self._strategy.ack(candle)
-        self.execute(action)
+        self.execute(action, candle)
         self._strategy.confirm(action)
+        position = self._strategy.current_position()
+        self._write_trade_influx(
+            timestamp_ns=time.time_ns(),
+            equity=float(self._strategy.current_equity()),
+            position_side=position.side.name,
+            position_size=float(position.size),
+        )
 
-    def execute(self, action: Action) -> None:
-        """Execute a strategy action against current context."""
-        context = self._context
+    def execute(self, action: Action, candle: Candle) -> None:
+        """Execute a strategy action against the current candle."""
         okx = self._okx
 
         # Configure leverage on the exchange once
-        if okx and context.instrument and not context._leverage_set:
+        if okx and self._instrument and not self._leverage_set:
             okx.set_leverage(
-                instrument=context.instrument,
-                leverage=context.leverage,
-                margin_mode=context.margin_mode,
+                instrument=self._instrument,
+                leverage=self._leverage,
+                margin_mode=self._margin_mode,
             )
-            context._leverage_set = True
+            self._leverage_set = True
 
         if isinstance(action, NoAction):
             return
 
-        price = float(context.ohlc["close"].iloc[-1])
-        ts = context.ohlc.index[-1]
-        instrument = context.instrument
+        price = float(candle.close)
+        instrument = self._instrument
 
         if isinstance(action, Close):
             try:
-                self._close_position(price=price, ts=ts, instrument=instrument)
+                close_size = action.position.size if action.position is not None else 0.0
+                close_result = self._close_position(
+                    price=price,
+                    instrument=instrument,
+                    close_size=close_size,
+                )
+                if close_result is not None:
+                    action.price = close_result
             except ExecutionError:
                 return
             return
 
         if isinstance(action, Open):
-            try:
-                self._close_position(price=price, ts=ts, instrument=instrument)
-            except ExecutionError:
-                return
+            prev_position = self._strategy.current_position()
+            if not prev_position.is_flat:
+                try:
+                    close_result = self._close_position(
+                        price=price,
+                        instrument=instrument,
+                        close_size=prev_position.size,
+                    )
+                    if close_result is not None:
+                        action.close_price = close_result
+                except ExecutionError:
+                    return
 
             pos = action.position
-            position_value = context.capital * pos.size
+            equity = float(self._strategy.current_equity())
+            position_value = equity * pos.size
             entry_price = price
-            holding_size = context.holding_size
 
             if okx and instrument:
                 try:
-                    holding_size, entry_price = self._execute_open(
+                    entry_price = self._execute_open(
                         instrument=instrument,
                         position=int(pos.side),
                         position_value=position_value,
@@ -221,65 +158,38 @@ class OkxExcutor(NoActionExecution):
                 except ExecutionError:
                     return
 
-            context.entry_price = entry_price
-            context.entry_scale = pos.size
-            context.position = int(pos.side)
-            context.holding_size = holding_size
-            context.trades.append({
-                "time": str(ts),
-                "action": "open",
-                "side": pos.side.name,
-                "price": entry_price,
-                "equity": context.capital,
-            })
+            # Report effective fill price back to strategy in confirm(action)
+            pos.price = entry_price
             return
 
         if isinstance(action, Adjust):
-            pos = action.position
-            context.entry_scale = pos.size
-            context.position = int(pos.side)
-
-    def _close_position(self, price: float, ts: pd.Timestamp, instrument: str) -> None:
-        """Close local/exchange position and realise PnL."""
-        context = self._context
-        if context.position == 0 or context.entry_price is None:
             return
+
+    def _close_position(
+        self,
+        price: float,
+        instrument: str,
+        close_size: float,
+    ) -> float | None:
+        """Close current exchange position."""
+        if close_size <= 0:
+            return None
 
         if self._okx and instrument:
             self._execute_close(instrument=instrument)
 
-        if context.position == 1:
-            pnl = (price - context.entry_price) / context.entry_price * context.capital * context.entry_scale
-        else:
-            pnl = (context.entry_price - price) / context.entry_price * context.capital * context.entry_scale
-
-        context.capital += pnl
-        context.trades.append({
-            "time": str(ts),
-            "action": "close",
-            "side": Side(context.position).name,
-            "price": price,
-            "pnl": pnl,
-            "equity": context.capital,
-        })
-        context.entry_price = None
-        context.position = 0
-        context.holding_size = "0"
+        return price
 
     def _execute_close(self, instrument: str) -> None:
         """Close current position on OKX."""
-        context = self._context
         client = self._okx
         if client is None:
             raise ExecutionError("okx client missing")
-        if context.holding_size == "0":
-            return
         try:
-            client.close_position(instrument=instrument, margin_mode="cross")
+            client.close_position(instrument=instrument, margin_mode=self._margin_mode)
         except Exception as e:
             log.error(f"OKX close position failed: {e}")
             raise ExecutionError("close position failed") from e
-        context.holding_size = "0"
 
     def _execute_open(
         self,
@@ -289,7 +199,7 @@ class OkxExcutor(NoActionExecution):
         reference_price: float,
         max_retries: int = 3,
         retry_delay: float = 2.0,
-    ) -> tuple[str, float]:
+    ) -> float:
         """Open a new futures position on OKX with retry on failure."""
         import time
 
@@ -314,7 +224,7 @@ class OkxExcutor(NoActionExecution):
                 order_price = self._safe_float(order.price)
                 if order_price is None or order_price <= 0:
                     order_price = reference_price
-                return size, order_price
+                return order_price
             except Exception as e:
                 log.error(f"OKX order failed (attempt {attempt}/{max_retries}): {type(e).__name__}: {e}")
                 if attempt < max_retries:
@@ -331,3 +241,21 @@ class OkxExcutor(NoActionExecution):
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _write_trade_influx(
+        self,
+        *,
+        timestamp_ns: int,
+        equity: float,
+        position_side: str,
+        position_size: float,
+    ) -> None:
+        if self._influx_client is None or self._trade_measurement is None:
+            return
+        value = self._trade_measurement.values(
+            timestamp_ns=timestamp_ns,
+            equity=equity,
+            position_side=position_side,
+            position_size=position_size,
+        )
+        self._influx_client.write(value)

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
+from client.influxdb import InfluxClient
 from dataloader.ohlc import Candle
 from executor.noaction import NoActionExecution
 from logger import log
+from monitor.measurement import BacktestMeasurement
 from strategy.action import Open
 
 
@@ -35,10 +38,27 @@ class Backtester(NoActionExecution):
         Strategy instance whose ``ack`` method returns an Action.
     """
 
-    def __init__(self, strategy) -> None:
+    def __init__(
+        self,
+        strategy,
+        influx_client: InfluxClient | None = None,
+    ) -> None:
         self._strategy = strategy
+        self._influx_client = influx_client
+        self._backtest_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self._backtest_measurement: BacktestMeasurement | None = None
+        if self._influx_client is not None:
+            self._backtest_measurement = BacktestMeasurement(backtest_id=self._backtest_id)
         self._equity_history: list[tuple[str, float]] = []
-        self._price_history: list[tuple[str, float]] = []
+        self._drawdown_history: list[tuple[str, float]] = []
+        self._sharpe_history: list[tuple[str, float]] = []
+        self._peak_equity: float | None = None
+        self._prev_equity: float | None = None
+        self._first_ts_ns: int | None = None
+        self._last_ts_ns: int | None = None
+        self._return_count: int = 0
+        self._return_mean: float = 0.0
+        self._return_m2: float = 0.0
 
     def ack(self, candle: Candle) -> None:
         action = self._strategy.ack(candle)
@@ -47,8 +67,42 @@ class Backtester(NoActionExecution):
             action.position.price = candle.close
 
         self._strategy.confirm(action)
-        self._equity_history.append((candle.timestamp, self._strategy.current_equity()))
-        self._price_history.append((candle.timestamp, float(candle.close)))
+        equity = float(self._strategy.current_equity())
+        timestamp_ns = self._timestamp_ns(candle)
+
+        if self._first_ts_ns is None:
+            self._first_ts_ns = timestamp_ns
+        self._last_ts_ns = timestamp_ns
+
+        if self._prev_equity is not None and self._prev_equity != 0:
+            bar_ret = (equity - self._prev_equity) / self._prev_equity
+            self._return_count += 1
+            delta = bar_ret - self._return_mean
+            self._return_mean += delta / self._return_count
+            delta2 = bar_ret - self._return_mean
+            self._return_m2 += delta * delta2
+        self._prev_equity = equity
+
+        if self._peak_equity is None or equity > self._peak_equity:
+            self._peak_equity = equity
+
+        peak = self._peak_equity if self._peak_equity is not None else equity
+        drawdown = float((equity - peak) / peak) if peak > 0 else 0.0
+        sharpe_ratio = self._current_sharpe_ratio()
+
+        self._equity_history.append((candle.timestamp, equity))
+        self._drawdown_history.append((candle.timestamp, drawdown))
+        self._sharpe_history.append((candle.timestamp, sharpe_ratio))
+        self._write_influx(
+            timestamp_ns=timestamp_ns,
+            equity=equity,
+            drawdown=drawdown,
+            sharpe_ratio=sharpe_ratio,
+        )
+
+    def close(self) -> None:
+        if self._influx_client is not None:
+            self._influx_client.close()
 
     # -- metrics ------------------------------------------------------------
 
@@ -63,42 +117,41 @@ class Backtester(NoActionExecution):
         )
 
     @property
-    def prices(self) -> pd.Series:
-        """Close prices as a time-indexed Series."""
-        timestamps, closes = (list(x) for x in zip(*self._price_history)) if self._price_history else ([], [])
-        return pd.Series(
-            closes,
-            index=pd.DatetimeIndex(timestamps, name="timestamp"),
-            name="close",
-        )
-
-    @property
     def returns(self) -> pd.Series:
         """Bar-to-bar returns derived from the equity curve."""
         return self.equity_curve.pct_change().fillna(0)
 
     @property
+    def drawdown_curve(self) -> pd.Series:
+        """Per-candle drawdown history as a time-indexed Series."""
+        timestamps, values = (list(x) for x in zip(*self._drawdown_history)) if self._drawdown_history else ([], [])
+        return pd.Series(
+            values,
+            index=pd.DatetimeIndex(timestamps, name="timestamp"),
+            name="drawdown",
+        )
+
+    @property
+    def sharpe_curve(self) -> pd.Series:
+        """Per-candle annualized Sharpe history as a time-indexed Series."""
+        timestamps, values = (list(x) for x in zip(*self._sharpe_history)) if self._sharpe_history else ([], [])
+        return pd.Series(
+            values,
+            index=pd.DatetimeIndex(timestamps, name="timestamp"),
+            name="sharpe_ratio",
+        )
+
+    @property
     def max_drawdown(self) -> float:
         """Maximum drawdown as a negative fraction (e.g. -0.05 = 5%)."""
-        eq = self.equity_curve
-        if len(eq) < 2:
+        if not self._drawdown_history:
             return 0.0
-        peak = eq.expanding().max()
-        dd = (eq - peak) / peak
-        return float(dd.min())
+        return float(min(dd for _, dd in self._drawdown_history))
 
     @property
     def sharpe_ratio(self) -> float:
         """Annualised Sharpe ratio over the full equity curve."""
-        ret = self.returns
-        if len(ret) < 2 or ret.std() == 0:
-            return 0.0
-        idx = pd.DatetimeIndex(ret.index)
-        total_secs = (idx[-1] - idx[0]).total_seconds()
-        bar_secs = total_secs / (len(ret) - 1)
-        periods_per_day = 86400 / bar_secs if bar_secs > 0 else 1
-        annualisation = np.sqrt(365 * periods_per_day)
-        return float((ret.mean() / ret.std()) * annualisation)
+        return self._current_sharpe_ratio()
 
     # -- summary ------------------------------------------------------------
 
@@ -121,6 +174,48 @@ class Backtester(NoActionExecution):
             f"  Bars:         {len(eq)}"
         )
 
+    def _write_influx(
+        self,
+        *,
+        timestamp_ns: int,
+        equity: float,
+        drawdown: float,
+        sharpe_ratio: float,
+    ) -> None:
+        if self._influx_client is None or self._backtest_measurement is None:
+            return
+        value = self._backtest_measurement.values(
+            timestamp_ns=timestamp_ns,
+            drawdown=drawdown,
+            equity=equity,
+            sharpe_ratio=sharpe_ratio,
+        )
+        self._influx_client.write(value)
+
+    def _timestamp_ns(self, candle: Candle) -> int:
+        if candle.timestamp_ns is not None:
+            return int(candle.timestamp_ns)
+        return int(pd.to_datetime(candle.timestamp, utc=True).value)
+
+    def _current_sharpe_ratio(self) -> float:
+        if self._return_count < 2:
+            return 0.0
+        variance = self._return_m2 / (self._return_count - 1)
+        if variance <= 0:
+            return 0.0
+        if self._first_ts_ns is None or self._last_ts_ns is None:
+            return 0.0
+        total_secs = (self._last_ts_ns - self._first_ts_ns) / 1_000_000_000
+        if total_secs <= 0:
+            return 0.0
+        bar_secs = total_secs / self._return_count
+        if bar_secs <= 0:
+            return 0.0
+        periods_per_day = 86400 / bar_secs
+        annualisation = np.sqrt(365 * periods_per_day)
+        std = np.sqrt(variance)
+        return float((self._return_mean / std) * annualisation)
+
     # -- result -------------------------------------------------------------
 
     def result(self, path: str) -> None:
@@ -134,22 +229,8 @@ class Backtester(NoActionExecution):
         if len(eq) < 2:
             return
 
-        ret = self.returns
-        running_max = eq.cummax()
-        drawdown_pct = ((eq - running_max) / running_max) * 100
-
-        # Rolling annualised Sharpe
-        idx = pd.DatetimeIndex(ret.index)
-        total_secs = (idx[-1] - idx[0]).total_seconds()
-        bar_secs = total_secs / (len(ret) - 1) if len(ret) > 1 else 1
-        periods_per_day = 86400 / bar_secs if bar_secs > 0 else 1
-        annualisation = np.sqrt(365 * periods_per_day)
-        win = min(int(periods_per_day * 30), len(ret))
-        rolling_mean = ret.rolling(window=win, min_periods=win).mean()
-        rolling_std = ret.rolling(window=win, min_periods=win).std()
-        rolling_sharpe = ((rolling_mean / rolling_std) * annualisation).replace(
-            [np.inf, -np.inf], np.nan
-        )
+        sharpe_curve = self.sharpe_curve
+        drawdown_pct = self.drawdown_curve * 100
 
         fig, (ax1, ax2, ax3) = plt.subplots(
             3, 1, figsize=(14, 9), sharex=True,
@@ -175,21 +256,21 @@ class Backtester(NoActionExecution):
             ha="right", va="top", fontsize=10, fontweight="bold", color="#F44336",
         )
 
-        # --- Rolling Sharpe ratio ---
-        ax2.plot(rolling_sharpe.index, rolling_sharpe, color="#FF9800", linewidth=1.0,
-                 label=f"Rolling Sharpe ({win}-bar)")
+        # --- Sharpe ratio ---
+        ax2.plot(sharpe_curve.index, sharpe_curve, color="#FF9800", linewidth=1.0, label="Sharpe")
         ax2.axhline(1, color="grey", linestyle="--", linewidth=0.8)
         ax2.fill_between(
-            rolling_sharpe.index, 0, rolling_sharpe,
-            where=rolling_sharpe >= 0, alpha=0.15, color="#4CAF50",
+            sharpe_curve.index, 0, sharpe_curve,
+            where=sharpe_curve >= 0, alpha=0.15, color="#4CAF50",
         )
         ax2.fill_between(
-            rolling_sharpe.index, 0, rolling_sharpe,
-            where=rolling_sharpe < 0, alpha=0.15, color="#F44336",
+            sharpe_curve.index, 0, sharpe_curve,
+            where=sharpe_curve < 0, alpha=0.15, color="#F44336",
         )
-        sharpe_ann_color = "#4CAF50" if self.sharpe_ratio >= 0 else "#F44336"
+        current_sharpe = float(sharpe_curve.iloc[-1]) if len(sharpe_curve) else 0.0
+        sharpe_ann_color = "#4CAF50" if current_sharpe >= 0 else "#F44336"
         ax2.annotate(
-            f"Annualized: {self.sharpe_ratio:.4f}",
+            f"Annualized: {current_sharpe:.4f}",
             xy=(0.99, 0.97), xycoords="axes fraction",
             ha="right", va="top", fontsize=10, fontweight="bold", color=sharpe_ann_color,
         )
@@ -205,7 +286,7 @@ class Backtester(NoActionExecution):
         ax3.legend(loc="upper left", fontsize=9)
         ax3.grid(True, alpha=0.3)
         ax3.annotate(
-            f"Max DD: {self.max_drawdown * 100:+.2f}%",
+            f"Max DD: {drawdown_pct.min():+.2f}%",
             xy=(0.99, 0.05), xycoords="axes fraction",
             ha="right", va="bottom", fontsize=9, fontweight="bold", color="#F44336",
         )

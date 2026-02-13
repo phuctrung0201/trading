@@ -106,7 +106,7 @@ class DrawdownPositionSize(NoActionStrategy):
         if prev.is_flat and not curr.is_flat:
             return Open(position=curr)
         if not prev.is_flat and curr.is_flat:
-            return Close()
+            return Close(position=prev)
         if prev.side != curr.side:
             return Open(position=curr)
         return Adjust(position=curr)
@@ -119,4 +119,7 @@ class DrawdownPositionSize(NoActionStrategy):
         elif isinstance(action, Close):
             self._scaled_position = 0.0
             self.last_position = Position.flat()
+
+    def current_position(self) -> Position:
+        return self.last_position
 

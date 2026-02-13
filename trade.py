@@ -1,20 +1,22 @@
 """Live futures trading via OKX WebSocket candle stream."""
 
+from client.influxdb import InfluxClient, InfluxConfig
 from client import okx
 from dataloader import ohlc
+from dataloader.ohlc import Candle as StrategyCandle
 from executor.okx import OkxExcutor
 from logger import log
 import setup
 
 
-def connect() -> okx.Client:
-    """Authenticate and return an OKX client."""
-    return okx.Client(
-        api_key=setup.okx_api_key,
-        secret_key=setup.okx_secret_key,
-        passphrase=setup.okx_passphrase,
-        demo=setup.okx_demo,
+def _build_influx_client() -> InfluxClient | None:
+    if not getattr(setup, "influx_enabled", False):
+        return None
+    config = InfluxConfig(
+        url=getattr(setup, "influx_url"),
+        token=getattr(setup, "influx_token"),
     )
+    return InfluxClient.from_config(config=config)
 
 
 def preload(client: okx.Client):
@@ -30,31 +32,48 @@ def preload(client: okx.Client):
 def run(client: okx.Client, executor: OkxExcutor) -> None:
     """Subscribe to live candles and execute the strategy."""
     channel = client.subscribe(instrument=setup.instrument, bar=setup.step)
+    try:
+        for candle in channel:
+            if not candle.confirm:
+                log.debug(str(candle))
+                continue
 
-    for candle in channel:
-        if candle.confirm:
-            log.info(candle)
-        else:
-            log.debug(candle)
-
-        executor.ack(candle)
+            log.info(str(candle))
+            executor.ack(
+                StrategyCandle(
+                    timestamp=candle.timestamp,
+                    open=float(candle.open),
+                    high=float(candle.high),
+                    low=float(candle.low),
+                    close=float(candle.close),
+                    volume=float(candle.volume),
+                )
+            )
+    finally:
+        channel.close()
 
 
 def main():
-    client = connect()
+    client = setup.okx_client()
     prices = preload(client)
-    capital = client.asset("USDT")
+    influx_client = _build_influx_client()
 
     executor = OkxExcutor(
-        cap=capital,
         instrument=setup.instrument,
         leverage=setup.leverage,
         strategy=setup.strategy,
         okx=client,
         ohlc=prices,
+        influx_client=influx_client,
     )
 
-    run(client, executor)
+    try:
+        run(client, executor)
+    except KeyboardInterrupt:
+        log.info("Stopping live trading...")
+    finally:
+        if influx_client is not None:
+            influx_client.close()
 
 
 if __name__ == "__main__":

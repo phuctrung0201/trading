@@ -1,0 +1,41 @@
+services:
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin12345
+      - DOCKER_INFLUXDB_INIT_ORG=trading
+      - DOCKER_INFLUXDB_INIT_BUCKET=trading
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=trading-super-secret-token
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  monitor:
+    image: grafana/grafana:11.5.2
+    container_name: monitor
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    volumes:
+      - monitor-data:/var/lib/grafana
+      - ./monitor/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./monitor/provisioning/dashboard-providers:/etc/grafana/provisioning/dashboards
+      - ./monitor/provisioning/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin12345
+
+volumes:
+  influxdb-data:
+  monitor-data:

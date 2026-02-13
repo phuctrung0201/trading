@@ -4,7 +4,11 @@ Uses pandas_ta for EMA calculation, which matches TradingView / OKX charts
 (SMA-seeded, α = 2 / (period + 1)).
 """
 
+import os
 import pandas as pd
+
+# Avoid numba cache failures in some Python environments during pandas_ta import.
+os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
 import pandas_ta as ta
 
 from logger import log
