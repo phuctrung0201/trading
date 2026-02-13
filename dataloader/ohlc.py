@@ -11,8 +11,8 @@ import pandas as pd
 class Candle:
     """A single OHLCV bar.
 
-    This is the generic, source-agnostic candle used by the strategy
-    layer.  Exchange-specific candle types (e.g. ``source.okx.Candle``)
+    This is the generic, client-agnostic candle used by the strategy
+    layer.  Exchange-specific candle types (e.g. ``client.okx.Candle``)
     can be converted via :meth:`from_okx` or by constructing directly.
 
     Parameters

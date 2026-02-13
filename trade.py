@@ -1,6 +1,6 @@
 """Live futures trading via OKX WebSocket candle stream."""
 
-from source import okx
+from client import okx
 from dataloader import ohlc
 from executor.future import Future
 from logger import log

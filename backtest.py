@@ -1,4 +1,4 @@
-from source import binance
+from client import binance
 from dataloader import ohlc
 from dataloader.ohlc import Candle
 from executor.backtester import Backtester

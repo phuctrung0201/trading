@@ -10,11 +10,11 @@ import pandas as pd
 from dataloader.ohlc import Candle
 from executor.noaction import NoActionExecution
 from logger import log
-from source.okx import Candle as OKXCandle
+from client.okx import Candle as OKXCandle
 from strategy.action import Action, NoAction, Open, Close, Adjust, Side
 
 if TYPE_CHECKING:
-    from source.okx import Client
+    from client.okx import Client
 
 
 # ---------------------------------------------------------------------------

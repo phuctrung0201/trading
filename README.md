@@ -19,7 +19,7 @@ trading/
 ├── executor/
 │   ├── backtester.py       # Backtester engine (batch evaluation + streaming API)
 │   └── future.py           # Live futures executor (OKX order management)
-├── source/
+├── client/
 │   ├── binance.py          # Binance data downloader (OHLCV + order book)
 │   └── okx.py              # OKX REST + WebSocket client
 └── dataloader/
