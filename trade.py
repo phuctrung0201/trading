@@ -2,7 +2,7 @@
 
 from client import okx
 from dataloader import ohlc
-from executor.future import Future
+from executor.okx import OkxExcutor
 from logger import log
 import setup
 
@@ -27,7 +27,7 @@ def preload(client: okx.Client):
     return ohlc.csv(path)
 
 
-def run(client: okx.Client, executor: Future) -> None:
+def run(client: okx.Client, executor: OkxExcutor) -> None:
     """Subscribe to live candles and execute the strategy."""
     channel = client.subscribe(instrument=setup.instrument, bar=setup.step)
 
@@ -45,7 +45,7 @@ def main():
     prices = preload(client)
     capital = client.asset("USDT")
 
-    executor = Future(
+    executor = OkxExcutor(
         cap=capital,
         instrument=setup.instrument,
         leverage=setup.leverage,

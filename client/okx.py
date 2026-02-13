@@ -10,6 +10,7 @@ import os
 import queue
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
@@ -506,6 +507,15 @@ class Client:
     # Trading
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _order_price_from_info(info: dict, fallback: str | None = None) -> str | None:
+        """Extract execution-relevant price from an order payload."""
+        for key in ("fillPx", "avgPx", "px"):
+            value = info.get(key)
+            if value not in (None, ""):
+                return value
+        return fallback
+
     def place_order(
         self,
         instrument: str,
@@ -561,15 +571,36 @@ class Client:
 
         data = self._post("/api/v5/trade/order", body)
         info = data["data"][0]
+        state = "submitted"
+        confirmed_price = self._order_price_from_info(info, fallback=price)
+
+        # Market orders usually fill quickly; poll order detail briefly to
+        # capture fill/avg price when it is not present in submit response.
+        order_id = info.get("ordId", "")
+        if order_type == "market" and order_id:
+            for _ in range(5):
+                detail = self._get(
+                    "/api/v5/trade/order",
+                    {"instId": instrument, "ordId": order_id},
+                )["data"][0]
+                state = detail.get("state", state)
+                confirmed_price = self._order_price_from_info(
+                    detail,
+                    fallback=confirmed_price,
+                )
+                if confirmed_price not in (None, "") or state in {"filled", "canceled"}:
+                    break
+                time.sleep(0.2)
+
         return Order(
-            order_id=info.get("ordId", ""),
+            order_id=order_id,
             client_order_id=info.get("clOrdId", ""),
             instrument=instrument,
             side=side,
             size=size,
-            price=price,
+            price=confirmed_price,
             order_type=order_type,
-            state="submitted",
+            state=state,
         )
 
     def cancel_order(self, instrument: str, order_id: str) -> dict:
@@ -614,7 +645,7 @@ class Client:
             instrument=info.get("instId", instrument),
             side=info.get("side", ""),
             size=info.get("sz", ""),
-            price=info.get("px", None),
+            price=self._order_price_from_info(info, fallback=info.get("px", None)),
             order_type=info.get("ordType", ""),
             state=info.get("state", ""),
         )
