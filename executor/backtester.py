@@ -134,7 +134,6 @@ class Backtester(NoActionExecution):
         if len(eq) < 2:
             return
 
-        prices = self.prices
         ret = self.returns
         running_max = eq.cummax()
         drawdown_pct = ((eq - running_max) / running_max) * 100
