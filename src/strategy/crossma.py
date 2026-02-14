@@ -37,6 +37,9 @@ class CrossMAStrategy(NoActionStrategy):
         self._values: list[float] = []
         self._current_position: Position | None = None
         self._last_close: float | None = None
+        self._peak_equity: float = self.equity
+        self._returns: list[float] = []
+        self._prev_equity: float = self.equity
 
     def _mark_to_market(self, candle: OHCLV):
         close_value = getattr(candle, "close", None)
@@ -57,6 +60,29 @@ class CrossMAStrategy(NoActionStrategy):
             self._current_position.size = self.equity
 
         self._last_close = close_price
+
+        if self._prev_equity > 0:
+            period_return = (self.equity - self._prev_equity) / self._prev_equity
+            self._returns.append(period_return)
+        self._prev_equity = self.equity
+
+        if self.equity > self._peak_equity:
+            self._peak_equity = self.equity
+
+    def _calculate_drawdown(self) -> float:
+        if self._peak_equity <= 0:
+            return 0.0
+        return (self.equity - self._peak_equity) / self._peak_equity
+
+    def _calculate_sharpe_ratio(self, risk_free_rate: float = 0.0) -> float:
+        if len(self._returns) < 2:
+            return 0.0
+        mean_return = sum(self._returns) / len(self._returns)
+        variance = sum((r - mean_return) ** 2 for r in self._returns) / len(self._returns)
+        std_dev = variance ** 0.5
+        if std_dev == 0:
+            return 0.0
+        return (mean_return - risk_free_rate) / std_dev
 
     def is_long(self, short_ema, long_ema):
         return short_ema > long_ema
@@ -129,13 +155,15 @@ class CrossMAStrategy(NoActionStrategy):
             float(self._current_position.size) if self._current_position is not None else 0.0
         )
         position_side = self._current_position.side if self._current_position is not None else "flat"
+        drawdown = self._calculate_drawdown()
+        sharpe_ratio = self._calculate_sharpe_ratio()
         trade_measurement = TradeMeasurement(
             timestamp=self._measurement_timestamp(candle),
             equity=float(self.equity),
             position_size=position_size,
             position_side=position_side,
-            drawdown=0.0,
-            sharpe_ratio=0.0,
+            drawdown=drawdown,
+            sharpe_ratio=sharpe_ratio,
         )
         self.measurement_adapter.record(trade_measurement)
         self._logger.info(

@@ -39,13 +39,12 @@ class InfluxAdapter(MeasurementAdapter):
     def record(self, measurable):
         payload = {"tags": self.tags, "fields": measurable.to_dict()}
         timestamp = getattr(measurable, "timestamp", None)
-        if timestamp is None:
-            timestamp = payload["tags"]["session_id"]
         if self.influxdb_client is not None:
             self.influxdb_client.write(
                 measurement="backtest",
                 fields=payload["fields"],
                 timestamp=timestamp,
+                tags=payload["tags"],
             )
         return payload
 

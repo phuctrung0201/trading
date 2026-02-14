@@ -18,11 +18,12 @@ class InfluxWorker:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def queue(self, measurement, fields, timestamp):
+    def queue(self, measurement, fields, timestamp, tags=None):
         item = {
             "measurement": measurement,
             "fields": fields,
             "timestamp": timestamp,
+            "tags": tags or {},
         }
         should_flush = False
         with self._lock:
@@ -71,8 +72,8 @@ class InfluxDBClient:
             app_logger=app_logger,
         )
 
-    def write(self, measurement, fields, timestamp):
-        self.worker.queue(measurement, fields, timestamp)
+    def write(self, measurement, fields, timestamp, tags=None):
+        self.worker.queue(measurement, fields, timestamp, tags)
 
     def close(self):
         self._logger.info("InfluxDBClient close requested")
@@ -100,13 +101,22 @@ class InfluxDBClient:
             if not field_parts:
                 continue
 
+            tags = point.get("tags", {})
+            tag_parts = []
+            if isinstance(tags, dict):
+                for key, value in tags.items():
+                    tag_parts.append(f"{self._escape_key(key)}={self._escape_key(value)}")
+
             ts = point.get("timestamp")
             if isinstance(ts, (int, float)):
                 timestamp_ns = int(ts)
             else:
                 timestamp_ns = time.time_ns()
 
-            lines.append(f"{measurement} {','.join(field_parts)} {timestamp_ns}")
+            if tag_parts:
+                lines.append(f"{measurement},{','.join(tag_parts)} {','.join(field_parts)} {timestamp_ns}")
+            else:
+                lines.append(f"{measurement} {','.join(field_parts)} {timestamp_ns}")
 
         if not lines:
             return
