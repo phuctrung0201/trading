@@ -9,6 +9,7 @@ result*.png
 
 # Credentials
 setup.py
+setup.yaml
 
 # Supervisor runtime artifacts
 .supervisor/*

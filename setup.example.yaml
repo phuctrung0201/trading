@@ -1,0 +1,41 @@
+log_level: INFO
+
+influx:
+  enabled: true
+  url: http://localhost:8086
+  org: trading
+  bucket: trading
+  token: <your-influxdb-token>
+  write_behavior:
+    mode: buffered
+
+okx:
+  api_key: <your-okx-api-key>
+  secret_key: <your-okx-secret-key>
+  passphrase: <your-okx-passphrase>
+  demo: true
+
+crossma:
+  short_length: 15
+  long_length: 200
+  equity: auto
+  sizing:
+    default: 1.0
+
+drawdown:
+  window: 1440
+  threshold_scale_map:
+    "0": 1.0
+    "0.1": 0.01
+    "0.2": 0.001
+  risk_limits:
+    max_drawdown: 0.2
+
+trade:
+  mode: live
+  instrument: ETH-USDT-SWAP
+  steps: 5m
+
+backtest:
+  start: "2026-02-13T00:00:00Z"
+  end: "2026-02-14T00:00:00Z"
