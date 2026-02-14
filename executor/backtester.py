@@ -11,7 +11,7 @@ from dataloader.ohlc import Candle
 from executor.noaction import NoActionExecution
 from logger import log
 from monitor.measurement import BacktestMeasurement
-from strategy.action import Open
+from strategy.action import NoAction, Open
 
 
 class Backtester(NoActionExecution):

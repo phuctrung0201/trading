@@ -74,8 +74,7 @@ def main():
     except KeyboardInterrupt:
         log.info("Stopping live trading...")
     finally:
-        if influx_client is not None:
-            influx_client.close()
+        executor.close()
 
 
 if __name__ == "__main__":

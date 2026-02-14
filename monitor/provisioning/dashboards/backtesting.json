@@ -32,6 +32,7 @@
             "fixedColor": "red",
             "mode": "fixed"
           },
+          "displayName": "Drawdown",
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -134,6 +135,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "displayName": "Equity",
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -235,6 +237,7 @@
           "color": {
             "mode": "palette-classic"
           },
+          "displayName": "Sharpe Ratio",
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,

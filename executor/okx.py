@@ -84,6 +84,8 @@ class OkxExcutor(NoActionExecution):
 
     def ack(self, candle: Candle) -> None:
         action = self._strategy.ack(candle)
+        if not isinstance(action, NoAction):
+            log.info(f"strat action [{candle.timestamp}]: {action}")
         self.execute(action, candle)
         self._strategy.confirm(action)
         position = self._strategy.current_position()
@@ -267,3 +269,7 @@ class OkxExcutor(NoActionExecution):
             position_size=position_size,
         )
         self._influx_client.write(value)
+
+    def close(self) -> None:
+        if self._influx_client is not None:
+            self._influx_client.close()

@@ -6,13 +6,12 @@ from dataclasses import dataclass
 import queue
 import threading
 import time
-from typing import Any, overload
 from urllib.parse import quote
 
 import requests
 
 from logger import log
-from monitor.measurement import BacktestMeasurement, MeasurementValue, NoValueMeasurement
+from monitor.measurement import MeasurementValue
 
 @dataclass(slots=True, init=False)
 class InfluxConfig:
@@ -23,6 +22,7 @@ class InfluxConfig:
     batch_size: int
     timeout_seconds: float
     flush_interval_seconds: float
+    max_flush_retries: int
 
     def __init__(self, url: str, token: str) -> None:
         self.url = url
@@ -32,17 +32,21 @@ class InfluxConfig:
         self.batch_size = 1000
         self.timeout_seconds = 10.0
         self.flush_interval_seconds = 5.0
+        self.max_flush_retries = 3
 
 
 class InfluxClient:
     """Buffered InfluxDB v2 writer with async flushing thread."""
+    _WAKE = object()
 
     def __init__(self, config: InfluxConfig) -> None:
         self._config = config
         self._session = requests.Session()
-        self._queue: queue.Queue[str] = queue.Queue()
+        self._queue: queue.Queue[str | object] = queue.Queue()
         self._closed = threading.Event()
         self._flush_now = threading.Event()
+        self._batch_size = max(int(self._config.batch_size), 1)
+        self._max_flush_retries = max(int(self._config.max_flush_retries), 0)
         self._worker = threading.Thread(
             target=self._run_flush_worker,
             name="influx-writer",
@@ -55,7 +59,7 @@ class InfluxClient:
         )
         log.debug(
             f"Influx client started: url={self._config.url} org={self._config.org} "
-            f"bucket={self._config.bucket} batch_size={self._config.batch_size}"
+            f"bucket={self._config.bucket} batch_size={self._batch_size}"
         )
 
     @classmethod
@@ -71,7 +75,7 @@ class InfluxClient:
             return
         self._queue.put(value.to_line())
         qsize = self._queue.qsize()
-        if qsize == 1 or qsize % 1000 == 0:
+        if qsize == 1 or qsize % self._batch_size == 0:
             log.debug(f"Influx enqueue ok: queue_size={qsize}")
 
     def flush(self) -> None:
@@ -80,14 +84,15 @@ class InfluxClient:
 
         log.debug(f"Influx flush requested: queue_size={self._queue.qsize()}")
         self._flush_now.set()
+        self._queue.put(self._WAKE)
         self._queue.join()
         while self._flush_now.is_set():
             time.sleep(0.01)
         log.debug("Influx flush completed")
 
-    def _post_lines(self, lines: list[str]) -> None:
+    def _post_lines(self, lines: list[str]) -> bool:
         if not lines:
-            return
+            return True
 
         payload = "\n".join(lines)
         url = (
@@ -108,24 +113,31 @@ class InfluxClient:
             )
             if response.status_code >= 300:
                 log.warn(f"Influx write failed [{response.status_code}]: {response.text[:200]}")
+                return False
             else:
                 log.debug(
                     f"Influx write ok: status={response.status_code} "
                     f"batch_points={len(lines)}"
                 )
+                return True
         except requests.RequestException as exc:
             log.warn(f"Influx write exception: {exc}")
+            return False
 
     def _run_flush_worker(self) -> None:
         batch: list[str] = []
+        flush_retries = 0
         interval = max(float(self._config.flush_interval_seconds), 0.1)
         deadline = time.monotonic() + interval
 
         while not self._closed.is_set() or not self._queue.empty() or batch:
             timeout = max(deadline - time.monotonic(), 0.0)
             try:
-                line = self._queue.get(timeout=timeout)
-                batch.append(line)
+                item = self._queue.get(timeout=timeout)
+                if item is self._WAKE:
+                    self._queue.task_done()
+                else:
+                    batch.append(item)
             except queue.Empty:
                 pass
 
@@ -136,26 +148,47 @@ class InfluxClient:
                 continue
 
             should_flush = (
-                len(batch) >= self._config.batch_size
-                or self._flush_now.is_set()
+                len(batch) >= self._batch_size
                 or time.monotonic() >= deadline
+                or (self._flush_now.is_set() and self._queue.empty())
             )
             if should_flush:
-                self._post_lines(batch)
-                for _ in batch:
-                    self._queue.task_done()
-                batch = []
-                deadline = time.monotonic() + interval
-                if self._flush_now.is_set() and self._queue.empty():
-                    self._flush_now.clear()
+                if self._post_lines(batch):
+                    for _ in batch:
+                        self._queue.task_done()
+                    batch = []
+                    flush_retries = 0
+                    deadline = time.monotonic() + interval
+                    if self._flush_now.is_set() and self._queue.empty():
+                        self._flush_now.clear()
+                else:
+                    flush_retries += 1
+                    if flush_retries > self._max_flush_retries:
+                        log.warn(
+                            f"Dropping failed Influx batch after {flush_retries} attempts: "
+                            f"batch_points={len(batch)}"
+                        )
+                        for _ in batch:
+                            self._queue.task_done()
+                        batch = []
+                        flush_retries = 0
+                        deadline = time.monotonic() + interval
+                        if self._flush_now.is_set() and self._queue.empty():
+                            self._flush_now.clear()
+                    else:
+                        backoff_seconds = min(0.5 * (2 ** (flush_retries - 1)), 2.0)
+                        time.sleep(backoff_seconds)
+                        self._queue.put(self._WAKE)
 
     def close(self) -> None:
         if self._closed.is_set():
             return
 
         log.info("Closing Influx client")
-        self.flush()
         self._closed.set()
+        self._flush_now.set()
+        self._queue.put(self._WAKE)
+        self._queue.join()
         self._worker.join(timeout=max(self._config.timeout_seconds, 1.0) + 1.0)
         if self._worker.is_alive():
             log.warn("Influx flush worker did not stop cleanly")
