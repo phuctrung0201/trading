@@ -9,3 +9,7 @@ result*.png
 
 # Credentials
 setup.py
+
+# Supervisor runtime artifacts
+.supervisor/*
+!.supervisor/.gitkeep

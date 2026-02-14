@@ -122,6 +122,46 @@ python trade.py
 
 Connects to OKX (demo mode by default), preloads recent candles, subscribes to real-time candle updates, and executes futures trades based on strategy signals.
 
+### Live Trading With Supervisord
+
+Use `supervisord` when you want `trade.py` managed as a background process with restart behavior and logs.
+Run the commands below from the project root (`trading/`) so Supervisor uses `./supervisord.conf`.
+
+1. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+2. Start supervisor daemon:
+
+```bash
+mkdir -p .supervisor
+supervisord
+```
+
+3. Start managed trading process:
+
+```bash
+supervisorctl start trade
+```
+
+4. Check status / logs:
+
+```bash
+supervisorctl status
+tail -f .supervisor/trade.stdout.log .supervisor/trade.stderr.log
+```
+
+5. Stop:
+
+```bash
+supervisorctl stop trade
+supervisorctl shutdown
+```
+
+Supervisor configuration lives in `supervisord.conf` and `supervisord.d/trade.conf`. Runtime socket/pid/log files are written to `.supervisor/`.
+
 ## Dependencies
 
 - pandas
@@ -129,3 +169,4 @@ Connects to OKX (demo mode by default), preloads recent candles, subscribes to r
 - matplotlib
 - requests
 - websockets
+- supervisor

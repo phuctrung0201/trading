@@ -3,3 +3,4 @@ pandas>=2.1
 numpy>=1.26
 websockets>=13.0
 pandas_ta>=0.4.71b0
+supervisor>=4.2
