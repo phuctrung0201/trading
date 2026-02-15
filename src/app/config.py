@@ -42,7 +42,6 @@ class OkxValue:
     api_key: str = ""
     secret_key: str = ""
     passphrase: str = ""
-    demo: bool = True
 
 
 @dataclass
@@ -56,15 +55,18 @@ class CrossMAValue:
 @dataclass
 class DrawdownValue:
     window: int = 500
-    threshold_scale_map: dict[str, Any] = field(default_factory=lambda: {"0": 1.0})
+    threshold_scale_map: dict[float, float] = field(default_factory=lambda: {0.0: 1.0})
     risk_limits: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class TradeValue:
-    mode: str = "live"
+    demo: bool = True
     instrument: str = ""
     steps: str = "1m"
+    preload: str = "1d"
+    leverage: int = 1
+    strategy: str = "drawdown"
 
 
 @dataclass
@@ -106,7 +108,6 @@ class ConfigValue:
                 api_key=str(okx.get("api_key", "")),
                 secret_key=str(okx.get("secret_key", "")),
                 passphrase=str(okx.get("passphrase", "")),
-                demo=bool(okx.get("demo", True)),
             ),
             crossma=CrossMAValue(
                 short_length=int(crossma.get("short_length", 15)),
@@ -116,13 +117,16 @@ class ConfigValue:
             ),
             drawdown=DrawdownValue(
                 window=int(drawdown.get("window", 500)),
-                threshold_scale_map=_as_dict(drawdown.get("threshold_scale_map")) or {"0": 1.0},
+                threshold_scale_map={float(k): float(v) for k, v in _as_dict(drawdown.get("threshold_scale_map")).items()} or {0.0: 1.0},
                 risk_limits=_as_dict(drawdown.get("risk_limits")),
             ),
             trade=TradeValue(
-                mode=str(trade.get("mode", "live")),
+                demo=bool(trade.get("demo", True)),
                 instrument=str(trade.get("instrument", "")),
                 steps=str(trade.get("steps", "1m")),
+                preload=str(trade.get("preload", "1d")),
+                leverage=int(trade.get("leverage", 1)),
+                strategy=str(trade.get("strategy", "drawdown")),
             ),
             backtest=BacktestValue(
                 start=str(backtest.get("start", "")),

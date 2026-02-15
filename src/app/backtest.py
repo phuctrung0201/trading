@@ -1,53 +1,9 @@
 import uuid
 
-from src.app.config import periods_per_year
+from src.app.adapter import InfluxAdapter, SimulateAdapter
 from src.app.core import CoreApp
-from src.strategy.adapter import ExchangeAdapter, MeasurementAdapter, OpenResult, Position
 from src.strategy.crossma import CrossMAStrategy
-
-
-class SimulateAdapter(ExchangeAdapter):
-    def __init__(self):
-        self.asset = 100.0
-        self.position: Position | None = None
-
-    def open(self, position: Position) -> OpenResult:
-        self.position = position
-        return OpenResult(success=True, position=position, message=None)
-
-    def close(self, position: Position) -> bool:
-        if self.position is None:
-            return False
-        self.position = None
-        return True
-
-    def get_asset(self, asset: str) -> float:
-        _ = asset
-        return self.asset
-
-
-class InfluxAdapter(MeasurementAdapter):
-    def __init__(self, influxdb_client=None):
-        self.influxdb_client = influxdb_client
-        self.tags = self.init_tag_set()
-
-    def new_session_id(self):
-        return uuid.uuid4().hex
-
-    def init_tag_set(self):
-        return {"session_id": self.new_session_id()}
-
-    def record(self, measurable):
-        payload = {"tags": self.tags, "fields": measurable.to_dict()}
-        timestamp = getattr(measurable, "timestamp", None)
-        if self.influxdb_client is not None:
-            self.influxdb_client.write(
-                measurement="backtest",
-                fields=payload["fields"],
-                timestamp=timestamp,
-                tags=payload["tags"],
-            )
-        return payload
+from src.strategy.drawdown import DrawdownStrategy
 
 
 class BacktestApp(CoreApp):
@@ -57,16 +13,13 @@ class BacktestApp(CoreApp):
         if self.logger is None:
             raise RuntimeError("BacktestApp logger must be initialized before strategies")
         self.logger.info("Initializing CrossMAStrategy")
-        steps = self.config.values.trade.steps
         strategy = CrossMAStrategy(
             exchange_adapter=exchange_adapter,
             measurement_adapter=measurement_adapter,
             app_logger=self.logger,
-            periods_per_year=periods_per_year(steps),
+            app_config=self.config,
         )
         config = self.config.values.crossma
-        strategy.init_short_length(config.short_length)
-        strategy.init_long_length(config.long_length)
         self.logger.info(
             f"CrossMAStrategy configured short={config.short_length} long={config.long_length}"
         )
@@ -82,7 +35,7 @@ class BacktestApp(CoreApp):
             self.init_influxdb_client(self.config) if self.config.values.influx.enabled else None
         )
         self.logger.info(
-            f"BacktestApp clients ready okx_demo={self.config.values.okx.demo} "
+            f"BacktestApp clients ready demo={self.config.values.trade.demo} "
             f"influx_enabled={self.config.values.influx.enabled}"
         )
 
@@ -96,10 +49,34 @@ class BacktestApp(CoreApp):
         )
 
         self.simulate_adapter = SimulateAdapter()
-        self.measurement_adapter = InfluxAdapter(self.influx_client)
-        self.logger.info(f"Backtest session_id={self.measurement_adapter.tags['session_id']}")
+        self.session_id = uuid.uuid4().hex
+        self.measurement_adapter = InfluxAdapter(self.influx_client, session_id=self.session_id)
+        self.logger.info(f"Backtest session_id={self.session_id}")
         self.crossma_strategy = self.init_crossma_strategy(
             self.simulate_adapter,
             self.measurement_adapter,
         )
+        self.drawdown_strategy = self.init_drawdown_strategy(
+            self.simulate_adapter,
+            self.measurement_adapter,
+        )
         self.logger.info("BacktestApp initialization completed")
+
+    def init_drawdown_strategy(self, exchange_adapter, measurement_adapter):
+        if self.config is None:
+            raise RuntimeError("BacktestApp config must be initialized before strategies")
+        if self.logger is None:
+            raise RuntimeError("BacktestApp logger must be initialized before strategies")
+        self.logger.info("Initializing DrawdownStrategy")
+        strategy = DrawdownStrategy(
+            exchange_adapter=exchange_adapter,
+            measurement_adapter=measurement_adapter,
+            app_logger=self.logger,
+            app_config=self.config,
+        )
+        drawdown_config = self.config.values.drawdown
+        self.logger.info(
+            f"DrawdownStrategy configured window={drawdown_config.window} "
+            f"thresholds={drawdown_config.threshold_scale_map}"
+        )
+        return strategy

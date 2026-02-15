@@ -13,7 +13,6 @@ okx:
   api_key: <your-okx-api-key>
   secret_key: <your-okx-secret-key>
   passphrase: <your-okx-passphrase>
-  demo: true
 
 crossma:
   short_length: 15
@@ -28,13 +27,14 @@ drawdown:
     "0": 1.0
     "0.1": 0.01
     "0.2": 0.001
-  risk_limits:
-    max_drawdown: 0.2
 
 trade:
-  mode: live
+  demo: true
   instrument: ETH-USDT-SWAP
   steps: 5m
+  preload: 1d
+  leverage: 1
+  strategy: drawdown
 
 backtest:
   start: "2026-02-13T00:00:00Z"

@@ -1,80 +1,52 @@
-"""Live futures trading via OKX WebSocket candle stream."""
+import logging
 
-from client.influxdb import InfluxClient, InfluxConfig
-from client import okx
-from dataloader import ohlc
-from dataloader.ohlc import Candle as StrategyCandle
-from executor.okx import OkxExcutor
-from logger import log
-import setup
-
-
-def _build_influx_client() -> InfluxClient | None:
-    if not getattr(setup, "influx_enabled", False):
-        return None
-    config = InfluxConfig(
-        url=getattr(setup, "influx_url"),
-        token=getattr(setup, "influx_token"),
-    )
-    return InfluxClient.from_config(config=config)
-
-
-def preload(client: okx.Client):
-    """Fetch recent candles so the strategy has enough history."""
-    path = client.prices(
-        instrument=setup.instrument,
-        bar=setup.step,
-        duration_from_now=setup.preload_duration,
-    )
-    return ohlc.csv(path)
-
-
-def run(client: okx.Client, executor: OkxExcutor) -> None:
-    """Subscribe to live candles and execute the strategy."""
-    channel = client.subscribe(instrument=setup.instrument, bar=setup.step)
-    try:
-        for candle in channel:
-            if not candle.confirm:
-                log.debug(str(candle))
-                continue
-
-            log.info(str(candle))
-            executor.ack(
-                StrategyCandle(
-                    timestamp=candle.timestamp,
-                    open=float(candle.open),
-                    high=float(candle.high),
-                    low=float(candle.low),
-                    close=float(candle.close),
-                    volume=float(candle.volume),
-                )
-            )
-    finally:
-        channel.close()
+from src.app.trade import TradeApp
 
 
 def main():
-    client = setup.okx_client()
-    prices = preload(client)
-    influx_client = _build_influx_client()
-    if influx_client is not None:
-        client.enable_request_monitoring(influx_client)
+    try:
+        run_trade()
+    except Exception as exc:
+        logging.getLogger("trading.app").error(f"Trade entry failed: {exc}")
+        raise
 
-    executor = OkxExcutor(
-        instrument=setup.instrument,
-        leverage=setup.leverage,
-        strategy=setup.strategy,
-        okx=client,
-        ohlc=prices,
-        influx_client=influx_client,
-    )
+
+def run_trade():
+    app = TradeApp()
+    if app.logger is None:
+        raise RuntimeError("TradeApp logger is not initialized")
+    if app.okx_client is None:
+        raise RuntimeError("TradeApp okx_client is not initialized")
+    logger = app.logger
 
     try:
-        run(client, executor)
+        logger.info(f"Trade session_id={app.session_id}")
+        app.preload()
+
+        logger.info(
+            f"Starting live trade instrument={app.instrument} step={app.step}"
+        )
+        for candle in app.okx_client.stream_prices(
+            instrument=app.instrument, step=app.step
+        ):
+            try:
+                logger.info(
+                    f"Candle timestamp={getattr(candle, 'timestamp', None)} "
+                    f"close={getattr(candle, 'close', None)}"
+                )
+                app.strategy.ack(candle)
+            except Exception:
+                logger.error(
+                    "Strategy ack failed "
+                    f"timestamp={getattr(candle, 'timestamp', None)} "
+                    f"close={getattr(candle, 'close', None)}"
+                )
+                logger.error("Strategy ack exception")
+                raise
     except KeyboardInterrupt:
-        log.info("Stopping live trading...")
+        logger.info("Stopping live trading...")
     finally:
-        executor.close()
+        app.close()
 
 
 if __name__ == "__main__":

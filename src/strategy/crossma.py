@@ -1,11 +1,20 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from src.app.config import AppConfig, periods_per_year
 from src.app.logger import AppLogger
 from src.client.ohclv import OHCLV
 from src.indicator.ema import EMA
 from src.measurement.trade import TradeMeasurement
-from src.strategy.adapter import ExchangeAdapter, MeasurementAdapter, Position
+from src.app.adapter import ExchangeAdapter, MeasurementAdapter, Position
 from src.strategy.noaction import NoActionStrategy
+
+
+@dataclass
+class SignalResult:
+    signal: str | None = None
+    short_ema: float | None = None
+    long_ema: float | None = None
 
 
 class CrossMAStrategy(NoActionStrategy):
@@ -26,22 +35,24 @@ class CrossMAStrategy(NoActionStrategy):
         exchange_adapter: ExchangeAdapter,
         measurement_adapter: MeasurementAdapter,
         app_logger: AppLogger,
-        periods_per_year: int = 525600,
+        app_config: AppConfig,
     ):
         super().__init__(app_logger=app_logger)
         self.exchange_adapter: ExchangeAdapter = exchange_adapter
         self.measurement_adapter = measurement_adapter
-        self.init_short_length(7)
-        self.init_long_length(21)
+        crossma_config = app_config.values.crossma
+        self.init_short_length(crossma_config.short_length)
+        self.init_long_length(crossma_config.long_length)
         self.equity: float = self.init_equity(exchange_adapter)
         self._ema: EMA = EMA()
         self._values: list[float] = []
         self._current_position: Position | None = None
+        self._exposure_ratio: float = 1.0
         self._last_close: float | None = None
         self._peak_equity: float = self.equity
         self._returns: list[float] = []
         self._prev_equity: float = self.equity
-        self._periods_per_year: int = periods_per_year
+        self._periods_per_year: int = periods_per_year(app_config.values.trade.steps)
 
     def _mark_to_market(self, candle: OHCLV):
         close_value = getattr(candle, "close", None)
@@ -59,7 +70,7 @@ class CrossMAStrategy(NoActionStrategy):
             direction = 1.0 if self._current_position.side == "buy" else -1.0
             pnl = self._current_position.size * bar_return * direction
             self.equity = max(0.0, self.equity + pnl)
-            self._current_position.size = self.equity
+            self._current_position.size = self.equity * self._exposure_ratio
 
         self._last_close = close_price
 
@@ -94,14 +105,14 @@ class CrossMAStrategy(NoActionStrategy):
     def is_short(self, short_ema, long_ema):
         return short_ema < long_ema
 
-    def _signal(self, candle: OHCLV):
+    def _signal(self, candle: OHCLV) -> SignalResult:
         close_value = getattr(candle, "close", None)
         if close_value is None:
-            return None
+            return SignalResult()
 
         self._values.append(float(close_value))
         if len(self._values) < self.long:
-            return None
+            return SignalResult()
 
         short_values = self._values[-self.short :]
         long_values = self._values[-self.long :]
@@ -109,12 +120,14 @@ class CrossMAStrategy(NoActionStrategy):
         long_ema = self._ema.calculate(long_values)
 
         if short_ema is None or long_ema is None:
-            return None
+            return SignalResult()
+
+        signal = None
         if self.is_long(short_ema, long_ema):
-            return "LONG"
-        if self.is_short(short_ema, long_ema):
-            return "SHORT"
-        return None
+            signal = "LONG"
+        elif self.is_short(short_ema, long_ema):
+            signal = "SHORT"
+        return SignalResult(signal=signal, short_ema=short_ema, long_ema=long_ema)
 
     def _measurement_timestamp(self, candle: OHCLV) -> int | None:
         raw = getattr(candle, "timestamp", None)
@@ -136,29 +149,36 @@ class CrossMAStrategy(NoActionStrategy):
         return None
 
     def ack(self, candle: OHCLV):
-        timestamp = getattr(candle, "timestamp", None)
-        self._logger.info(f"CrossMAStrategy ack timestamp={timestamp}")
         self._mark_to_market(candle)
-        signal = self._signal(candle)
-        if signal is None:
-            self._logger.info("CrossMAStrategy no signal")
-            return
+        result = self._signal(candle)
 
-        side = "buy" if signal == "LONG" else "sell"
-        if self._current_position is not None and self._current_position.side != side:
-            self.exchange_adapter.close(self._current_position)
-            self._current_position = None
+        if result.signal is not None:
+            side = "buy" if result.signal == "LONG" else "sell"
+            if self._current_position is not None and self._current_position.side != side:
+                self._logger.info(
+                    f"CrossMAStrategy closing side={self._current_position.side} "
+                    f"size={self._current_position.size:.4f}"
+                )
+                self.exchange_adapter.close(self._current_position)
+                self._current_position = None
+                self._exposure_ratio = 1.0
 
-        if self._current_position is None:
-            position = Position(side=side, size=self.equity)
-            result = self.exchange_adapter.open(position)
-            if result.success:
-                self._current_position = result.position or position
+            if self._current_position is None:
+                position = Position(side=side, size=self.equity)
+                open_result = self.exchange_adapter.open(position)
+                if open_result.success:
+                    self._current_position = open_result.position or position
+                    self._logger.info(
+                        f"CrossMAStrategy signal={result.signal} side={side} "
+                        f"equity={float(self.equity):.4f} size={self.equity:.4f}"
+                    )
 
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
         )
         position_side = self._current_position.side if self._current_position is not None else "flat"
+        if position_side == "sell":
+            position_size = -position_size
         drawdown = self._calculate_drawdown()
         sharpe_ratio = self._calculate_sharpe_ratio()
         trade_measurement = TradeMeasurement(
@@ -168,9 +188,7 @@ class CrossMAStrategy(NoActionStrategy):
             position_side=position_side,
             drawdown=drawdown,
             sharpe_ratio=sharpe_ratio,
+            short_ema=result.short_ema,
+            long_ema=result.long_ema,
         )
         self.measurement_adapter.record(trade_measurement)
-        self._logger.info(
-            f"CrossMAStrategy signal={signal} side={side} "
-            f"equity={float(self.equity):.4f} size={position_size:.4f}"
-        )

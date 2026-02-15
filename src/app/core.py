@@ -29,7 +29,7 @@ class CoreApp:
             api_key=okx.api_key,
             secret_key=okx.secret_key,
             passphrase=okx.passphrase,
-            demo=okx.demo,
+            demo=bool(config.value.trade.demo),
         )
 
     def __init__(self):
