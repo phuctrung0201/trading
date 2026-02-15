@@ -26,6 +26,7 @@ class CrossMAStrategy(NoActionStrategy):
         exchange_adapter: ExchangeAdapter,
         measurement_adapter: MeasurementAdapter,
         app_logger: AppLogger,
+        periods_per_year: int = 525600,
     ):
         super().__init__(app_logger=app_logger)
         self.exchange_adapter: ExchangeAdapter = exchange_adapter
@@ -40,6 +41,7 @@ class CrossMAStrategy(NoActionStrategy):
         self._peak_equity: float = self.equity
         self._returns: list[float] = []
         self._prev_equity: float = self.equity
+        self._periods_per_year: int = periods_per_year
 
     def _mark_to_market(self, candle: OHCLV):
         close_value = getattr(candle, "close", None)
@@ -75,6 +77,7 @@ class CrossMAStrategy(NoActionStrategy):
         return (self.equity - self._peak_equity) / self._peak_equity
 
     def _calculate_sharpe_ratio(self, risk_free_rate: float = 0.0) -> float:
+        """Calculate annualized Sharpe ratio."""
         if len(self._returns) < 2:
             return 0.0
         mean_return = sum(self._returns) / len(self._returns)
@@ -82,7 +85,8 @@ class CrossMAStrategy(NoActionStrategy):
         std_dev = variance ** 0.5
         if std_dev == 0:
             return 0.0
-        return (mean_return - risk_free_rate) / std_dev
+        sharpe = (mean_return - risk_free_rate) / std_dev
+        return sharpe * (self._periods_per_year ** 0.5)
 
     def is_long(self, short_ema, long_ema):
         return short_ema > long_ema

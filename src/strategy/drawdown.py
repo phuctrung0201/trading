@@ -19,8 +19,12 @@ class DrawdownStrategy(CrossMAStrategy):
         exchange_adapter: ExchangeAdapter,
         measurement_adapter,
         app_logger: AppLogger,
+        periods_per_year: int = 525600,
     ):
-        super().__init__(exchange_adapter, measurement_adapter, app_logger=app_logger)
+        super().__init__(
+            exchange_adapter, measurement_adapter, app_logger=app_logger,
+            periods_per_year=periods_per_year,
+        )
         self.init_drawdown(window=500)
         self.init_threshold(
             threshold={

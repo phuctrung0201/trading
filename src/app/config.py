@@ -7,6 +7,26 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def periods_per_year(steps: str) -> int:
+    """Convert timeframe string to number of periods per year."""
+    multipliers = {
+        "m": 525600,   # minutes per year
+        "h": 8760,     # hours per year
+        "d": 365,      # days per year
+        "w": 52,       # weeks per year
+        "M": 12,       # months per year
+    }
+    if not steps:
+        return 525600
+    unit = steps[-1]
+    try:
+        count = int(steps[:-1]) if len(steps) > 1 else 1
+    except ValueError:
+        return 525600
+    base = multipliers.get(unit, 525600)
+    return base // count if count > 0 else base
+
+
 @dataclass
 class InfluxValue:
     enabled: bool = False

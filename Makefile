@@ -7,5 +7,6 @@ backtest:
 	python backtest.py
 
 monitor:
-	docker-compose up -d influxdb monitor
-	./monitor/provision_dashboard.sh
+	cd influxdb && docker build -t trading-influxdb .
+	-docker rm -f influxdb 2>/dev/null
+	docker run -d -p 8086:8086 --name influxdb trading-influxdb

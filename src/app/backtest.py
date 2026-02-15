@@ -1,5 +1,6 @@
 import uuid
 
+from src.app.config import periods_per_year
 from src.app.core import CoreApp
 from src.strategy.adapter import ExchangeAdapter, MeasurementAdapter, OpenResult, Position
 from src.strategy.crossma import CrossMAStrategy
@@ -56,10 +57,12 @@ class BacktestApp(CoreApp):
         if self.logger is None:
             raise RuntimeError("BacktestApp logger must be initialized before strategies")
         self.logger.info("Initializing CrossMAStrategy")
+        steps = self.config.values.trade.steps
         strategy = CrossMAStrategy(
             exchange_adapter=exchange_adapter,
             measurement_adapter=measurement_adapter,
             app_logger=self.logger,
+            periods_per_year=periods_per_year(steps),
         )
         config = self.config.values.crossma
         strategy.init_short_length(config.short_length)
@@ -94,6 +97,7 @@ class BacktestApp(CoreApp):
 
         self.simulate_adapter = SimulateAdapter()
         self.measurement_adapter = InfluxAdapter(self.influx_client)
+        self.logger.info(f"Backtest session_id={self.measurement_adapter.tags['session_id']}")
         self.crossma_strategy = self.init_crossma_strategy(
             self.simulate_adapter,
             self.measurement_adapter,

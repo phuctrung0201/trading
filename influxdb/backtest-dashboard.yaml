@@ -1,0 +1,215 @@
+apiVersion: influxdata.com/v2alpha1
+kind: Variable
+metadata:
+  name: sessionid
+spec:
+  name: session_id
+  type: query
+  language: flux
+  query: |-
+    import "influxdata/influxdb/schema"
+    schema.tagValues(bucket: "trading", tag: "session_id")
+---
+apiVersion: influxdata.com/v2alpha1
+kind: Dashboard
+metadata:
+  name: backtest-dashboard
+spec:
+  name: Backtest Dashboard
+  description: Backtest performance metrics - equity, sharpe ratio, drawdown
+  charts:
+    - kind: Xy
+      name: Equity Curve
+      width: 12
+      height: 4
+      xPos: 0
+      yPos: 0
+      queries:
+        - query: |-
+            from(bucket: "trading")
+              |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+              |> filter(fn: (r) => r._measurement == "backtest")
+              |> filter(fn: (r) => r._field == "equity")
+              |> filter(fn: (r) => r.session_id == v.session_id)
+      xCol: _time
+      yCol: _value
+      geom: line
+      position: overlaid
+      hoverDimension: auto
+      opacity: 1
+      widthRatio: 1
+      axes:
+        - name: x
+          scale: linear
+        - name: "y"
+          base: "10"
+          scale: linear
+      colors:
+        - name: Nineteen Eighty Four
+          type: scale
+          hex: "#31C0F6"
+        - name: Nineteen Eighty Four
+          type: scale
+          hex: "#A500A5"
+        - name: Nineteen Eighty Four
+          type: scale
+          hex: "#FF7E27"
+      colorizeRows: true
+      legendColorizeRows: true
+      legendOpacity: 1
+      legendOrientationThreshold: 100000000
+      staticLegend:
+        colorizeRows: true
+        opacity: 1
+        orientationThreshold: 100000000
+        widthRatio: 1
+        show: true
+        heightRatio: 0.2
+        valueAxis: "y"
+    - kind: Xy
+      name: Sharpe Ratio
+      width: 6
+      height: 3
+      xPos: 0
+      yPos: 4
+      queries:
+        - query: |-
+            from(bucket: "trading")
+              |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+              |> filter(fn: (r) => r._measurement == "backtest")
+              |> filter(fn: (r) => r._field == "sharpe_ratio")
+              |> filter(fn: (r) => r.session_id == v.session_id)
+      xCol: _time
+      yCol: _value
+      geom: line
+      position: overlaid
+      hoverDimension: auto
+      opacity: 1
+      widthRatio: 1
+      axes:
+        - name: x
+          scale: linear
+        - name: "y"
+          base: "10"
+          scale: linear
+          prefix: ""
+      colors:
+        - name: Atlantis
+          type: scale
+          hex: "#74D495"
+        - name: Atlantis
+          type: scale
+          hex: "#3F3FBA"
+        - name: Atlantis
+          type: scale
+          hex: "#FF4D9E"
+      colorizeRows: true
+      legendColorizeRows: true
+      legendOpacity: 1
+      legendOrientationThreshold: 100000000
+      staticLegend:
+        colorizeRows: true
+        opacity: 1
+        orientationThreshold: 100000000
+        widthRatio: 1
+        show: true
+        heightRatio: 0.2
+        valueAxis: "y"
+    - kind: Xy
+      name: Drawdown
+      width: 6
+      height: 3
+      xPos: 6
+      yPos: 4
+      queries:
+        - query: |-
+            from(bucket: "trading")
+              |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+              |> filter(fn: (r) => r._measurement == "backtest")
+              |> filter(fn: (r) => r._field == "drawdown")
+              |> filter(fn: (r) => r.session_id == v.session_id)
+              |> map(fn: (r) => ({ r with _value: r._value * 100.0 }))
+      xCol: _time
+      yCol: _value
+      geom: line
+      position: overlaid
+      hoverDimension: auto
+      opacity: 1
+      widthRatio: 1
+      axes:
+        - name: x
+          scale: linear
+        - name: "y"
+          base: "10"
+          scale: linear
+          suffix: "%"
+      colors:
+        - name: Tiger
+          type: scale
+          hex: "#F48D38"
+        - name: Tiger
+          type: scale
+          hex: "#DC4E58"
+        - name: Tiger
+          type: scale
+          hex: "#F4CA00"
+      colorizeRows: true
+      legendColorizeRows: true
+      legendOpacity: 1
+      legendOrientationThreshold: 100000000
+      staticLegend:
+        colorizeRows: true
+        opacity: 1
+        orientationThreshold: 100000000
+        widthRatio: 1
+        show: true
+        heightRatio: 0.2
+        valueAxis: "y"
+    - kind: Xy
+      name: Position Size
+      width: 12
+      height: 3
+      xPos: 0
+      yPos: 7
+      queries:
+        - query: |-
+            from(bucket: "trading")
+              |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+              |> filter(fn: (r) => r._measurement == "backtest")
+              |> filter(fn: (r) => r._field == "position_size")
+              |> filter(fn: (r) => r.session_id == v.session_id)
+      xCol: _time
+      yCol: _value
+      geom: line
+      position: overlaid
+      hoverDimension: auto
+      opacity: 1
+      widthRatio: 1
+      axes:
+        - name: x
+          scale: linear
+        - name: "y"
+          base: "10"
+          scale: linear
+      colors:
+        - name: Do Androids Dream
+          type: scale
+          hex: "#8F8AF4"
+        - name: Do Androids Dream
+          type: scale
+          hex: "#A51414"
+        - name: Do Androids Dream
+          type: scale
+          hex: "#F4CF31"
+      colorizeRows: true
+      legendColorizeRows: true
+      legendOpacity: 1
+      legendOrientationThreshold: 100000000
+      staticLegend:
+        colorizeRows: true
+        opacity: 1
+        orientationThreshold: 100000000
+        widthRatio: 1
+        show: true
+        heightRatio: 0.2
+        valueAxis: "y"
