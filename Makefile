@@ -1,7 +1,19 @@
-.PHONY: trade backtest monitor monitor-down monitor-logs
+.PHONY: trade trade-stop trade-status trade-logs backtest monitor monitor-down monitor-logs
 
 trade:
-	python trade.py
+	@mkdir -p .supervisor
+	@supervisord -c supervisord.conf 2>/dev/null || true
+	supervisorctl -c supervisord.conf start trade
+
+trade-stop:
+	supervisorctl -c supervisord.conf stop trade
+	supervisorctl -c supervisord.conf shutdown
+
+trade-status:
+	supervisorctl -c supervisord.conf status
+
+trade-logs:
+	tail -f .supervisor/trade.stdout.log .supervisor/trade.stderr.log
 
 backtest:
 	python backtest.py

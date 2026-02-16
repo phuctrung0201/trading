@@ -1,107 +1,146 @@
 # Trading
 
-Algorithmic trading framework for backtesting and live futures executor on crypto exchanges.
-
-![Backtest Results](backtest.png)
+Algorithmic trading framework for backtesting and live futures execution on OKX. Strategies run against a real-time candle stream or historical data, with metrics recorded to InfluxDB and visualized in Grafana.
 
 ## Project Structure
 
 ```
 trading/
-├── setup.py                # Configuration: credentials, pair, timeframe, strategy
-├── setup_example.py        # Example config with placeholder credentials
-├── backtest.py             # Run a historical backtest
-├── trade.py                # Run live trading via OKX
-├── signal/
-│   └── macross.py          # EMA crossover signal generator
-├── strategy/
-│   └── drawdown.py         # Drawdown-aware position sizing with multi-signal selection
-├── executor/
-│   ├── backtester.py       # Backtester engine (batch evaluation + streaming API)
-│   └── future.py           # Live futures executor (OKX order management)
-├── client/
-│   ├── binance.py          # Binance data downloader (OHLCV + order book)
-│   └── okx.py              # OKX REST + WebSocket client
-└── dataloader/
-    ├── ohlc.py             # Load OHLCV CSVs into DataFrames
-    └── order_book.py       # Load order book CSVs into DataFrames
+├── trade.py                        # Live trading entry point
+├── backtest.py                     # Backtest entry point
+├── setup.yaml                      # Runtime config (credentials, strategy, timeframe)
+├── setup.example.yaml              # Example config with placeholder values
+├── docker-compose.yaml             # InfluxDB + Grafana stack
+├── requirements.txt
+├── src/
+│   ├── app/
+│   │   ├── core.py                 # CoreApp — shared init for config, logger, clients
+│   │   ├── trade.py                # TradeApp — live trading application
+│   │   ├── backtest.py             # BacktestApp — backtesting application
+│   │   ├── adapter.py              # Exchange & measurement adapter interfaces
+│   │   ├── config.py               # YAML config loader and typed dataclasses
+│   │   └── logger.py               # Structured logging
+│   ├── strategy/
+│   │   ├── noaction.py             # NoActionStrategy — base pass-through strategy
+│   │   ├── crossma.py              # CrossMAStrategy — EMA crossover with mark-to-market
+│   │   └── drawdown.py             # DrawdownStrategy — drawdown-aware position sizing
+│   ├── indicator/
+│   │   └── ema.py                  # EMA calculator
+│   ├── measurement/
+│   │   └── trade.py                # TradeMeasurement dataclass (equity, drawdown, Sharpe)
+│   └── client/
+│       ├── okx.py                  # OKX REST client (market data, trading, account)
+│       ├── influxdb.py             # InfluxDB v2 writer with buffered background flush
+│       └── ohclv.py                # OHCLV candle dataclass
+└── grafana/
+    ├── dashboards/                 # Pre-built Grafana dashboard JSON
+    └── provisioning/               # Grafana datasource and dashboard provisioning
 ```
 
-## How It Works
+## Architecture
 
-### Signals
+The framework is built around three abstractions — **adapters**, **strategies**, and **clients** — wired together by an application layer.
 
-Signals generate raw trade directions from price data. Each signal implements `generate_signals(df)` and returns a DataFrame with a `position` column (+1 long, -1 short, 0 flat).
+### Adapters
 
-- **MACross** — EMA crossover. Emits a signal only at crossover points where the short EMA crosses above (long) or below (short) the long EMA. Position is held between crossovers.
+Adapters decouple strategies from external systems. Two interfaces are defined in `src/app/adapter.py`:
 
-### Strategy
+- **ExchangeAdapter** — abstract interface for opening/closing positions and querying balances.
+  - `OkxExchangeAdapter` — live execution on OKX with leverage management, contract-size conversion, margin-error retry, and exponential backoff.
+  - `SimulateAdapter` — in-memory position tracker used during backtests.
+- **MeasurementAdapter** — abstract interface for recording strategy metrics.
+  - `InfluxAdapter` — writes `TradeMeasurement` data points to InfluxDB, tagged by session ID.
 
-Strategies wrap signals with risk management and signal selection logic.
+### Strategies
 
-- **DrawdownPositionSize** — Accepts multiple signals, evaluates each one's rolling Sharpe ratio, and picks the best performer. Position size is scaled down as portfolio drawdown deepens according to configurable thresholds. When drawdown exceeds a re-evaluation threshold, the signal choice is reconsidered.
+Strategies consume OHCLV candles one at a time through the `ack(candle)` method.
 
-### Executor
+- **NoActionStrategy** — base class; logs each candle and does nothing.
+- **CrossMAStrategy** — EMA crossover strategy. Computes short and long EMAs over a sliding window of close prices. When the short EMA crosses above the long, it opens a long; when it crosses below, it opens a short. Tracks equity via bar-by-bar mark-to-market, computes rolling drawdown and annualized Sharpe ratio, and emits a `TradeMeasurement` on every candle.
+- **DrawdownStrategy** — extends `CrossMAStrategy` with drawdown-aware position sizing. Maintains a rolling equity window and scales position size down through configurable threshold/scale tiers as drawdown deepens.
 
-Two executor modes share the same streaming interface (`ack`):
+### Indicator
 
-- **Backtester** — Feeds historical candles through the strategy pipeline and produces equity curves, drawdown charts, and Sharpe ratio metrics.
-- **Future** — Connects to OKX for live futures trading. Manages leverage, position tracking, and order execution with retry logic.
+- **EMA** — computes an exponential moving average over an arbitrary-length value array.
 
-### Data Sources
+### Clients
 
-- **Binance** — Downloads historical OHLCV candles and order book snapshots via the public REST API.
-- **OKX** — REST client for account, market data, and trading endpoints. WebSocket client for real-time candle streaming.
+- **OkxClient** — signed REST client for OKX. Handles order placement, position close, leverage, mark price, instrument info, and candle history. Provides two generators: `stream_history` for backtesting (paginated history-candles endpoint) and `stream_prices` for live trading (polling confirmed candles).
+- **InfluxDBClient** — writes line-protocol batches to InfluxDB v2 over HTTP. Uses a background `InfluxWorker` thread that buffers points and flushes periodically or when the buffer fills.
+
+### Application Layer
+
+- **CoreApp** — initializes config, logger, OKX client, and InfluxDB client.
+- **TradeApp** — extends `CoreApp` for live trading. Preloads recent candles for strategy warm-up, then streams real-time candles from OKX and feeds them into the selected strategy.
+- **BacktestApp** — extends `CoreApp` for backtesting. Uses `SimulateAdapter` for position tracking and streams historical candles from OKX through the strategy.
 
 ## Setup
 
-1. Copy the example config and fill in your OKX credentials:
+1. Copy the example config:
 
 ```bash
-cp setup_example.py setup.py
+cp setup.example.yaml setup.yaml
 ```
 
-2. Edit `setup.py` and replace the placeholder values:
+2. Fill in your OKX API credentials and (optionally) InfluxDB token in `setup.yaml`:
 
-```python
-okx_api_key = "your-api-key"
-okx_secret_key = "your-secret-key"
-okx_passphrase = "your-passphrase"
-okx_demo = True              # Set to False for live trading
+```yaml
+okx:
+  api_key: "your-okx-api-key"
+  secret_key: "your-okx-secret-key"
+  passphrase: "your-okx-passphrase"
 ```
 
-> **Note:** `setup.py` contains secrets and should not be committed. Only `setup_example.py` is safe to share.
+> `setup.yaml` contains secrets and should not be committed. Only `setup.example.yaml` is safe to share.
+
+3. Install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Configuration
 
-All trading parameters are defined in `setup.py`:
+All parameters live in `setup.yaml`:
 
-```python
-pair = "ETH/USDT"           # Trading pair (used for Binance data download)
-instrument = "ETH-USDT-SWAP" # OKX instrument ID (used for live trading)
-step = "1m"                  # Candle interval
-cap = 100                    # Starting capital (USDT)
-leverage = "10"              # Futures leverage
+```yaml
+log_level: INFO
 
-start = "2025-01-01T00:00:00Z"  # Backtest start
-end = "2025-02-01T00:00:00Z"    # Backtest end
-preload_duration = "6h"         # Candle history to preload for live trading
+influx:
+  enabled: true
+  url: http://localhost:8086
+  org: trading
+  bucket: trading
+  token: <your-influxdb-token>
 
-strategy = DrawdownPositionSize(
-    signals=[
-        MACross(short=15, long=17),
-        MACross(short=10, long=17),
-        MACross(short=5, long=17),
-    ],
-    size={
-        0: 0.5,        # No drawdown    → 50% position size
-        0.04: 0.04,    # 4% drawdown    → 4% position size
-        0.06: 0.02,    # 6% drawdown    → 2% position size
-    },
-    reevaluate_threshold=0.1,  # At 10% drawdown, re-evaluate signal choice
-    window=500,                # Rolling equity peak lookback
-    sharpe_window=1440,        # Rolling Sharpe ratio lookback
-)
+okx:
+  api_key: <your-okx-api-key>
+  secret_key: <your-okx-secret-key>
+  passphrase: <your-okx-passphrase>
+
+crossma:
+  short_length: 15          # Short EMA period
+  long_length: 200          # Long EMA period
+  equity: auto              # "auto" fetches balance from OKX; or set a fixed number
+
+drawdown:
+  window: 1440              # Rolling equity peak lookback (candles)
+  threshold_scale_map:      # Drawdown % → position scale factor
+    "0": 1.0                # No drawdown → 100% size
+    "0.1": 0.01             # 10% drawdown → 1% size
+    "0.2": 0.001            # 20% drawdown → 0.1% size
+
+trade:
+  demo: true                # true = OKX demo trading; false = real funds
+  instrument: ETH-USDT-SWAP # OKX instrument ID
+  steps: 5m                 # Candle interval
+  preload: 1d               # History to preload for warm-up
+  leverage: 1               # Futures leverage
+  strategy: drawdown        # "crossma" or "drawdown"
+
+backtest:
+  start: "2026-02-13T00:00:00Z"
+  end: "2026-02-14T00:00:00Z"
 ```
 
 ## Usage
@@ -109,64 +148,51 @@ strategy = DrawdownPositionSize(
 ### Backtest
 
 ```bash
-python backtest.py
+make backtest
 ```
 
-Downloads historical data from Binance (if not cached), runs the strategy, prints performance metrics, and saves an equity/drawdown chart to `backtest.png`.
+Streams historical candles from OKX for the configured time window, runs the drawdown strategy with simulated execution, and records metrics to InfluxDB (if enabled).
 
 ### Live Trading
 
 ```bash
-python trade.py
+make trade
 ```
 
-Connects to OKX (demo mode by default), preloads recent candles, subscribes to real-time candle updates, and executes futures trades based on strategy signals.
+Starts `trade.py` as a supervised background process via `supervisord`. The process auto-restarts on crash and logs to `.supervisor/trade.stdout.log` and `.supervisor/trade.stderr.log`.
 
-### Live Trading With Supervisord
-
-Use `supervisord` when you want `trade.py` managed as a background process with restart behavior and logs.
-Run the commands below from the project root (`trading/`) so Supervisor uses `./supervisord.conf`.
-
-1. Install dependencies:
+Connects to OKX (demo mode by default), preloads recent candle history for strategy warm-up, then polls for new confirmed candles and executes trades based on strategy signals.
 
 ```bash
-pip install -r requirements.txt
+make trade-status   # check if the process is running
+make trade-logs     # tail stdout and stderr logs
+make trade-stop     # stop the process and shut down supervisord
 ```
 
-2. Start supervisor daemon:
+### Observability (InfluxDB + Grafana)
+
+Start the metrics stack:
 
 ```bash
-mkdir -p .supervisor
-supervisord
+make monitor
 ```
 
-3. Start managed trading process:
+Stop or tail logs:
 
 ```bash
-supervisorctl start trade
+make monitor-down
+make monitor-logs
 ```
 
-4. Check status / logs:
+This brings up:
 
-```bash
-supervisorctl status
-tail -f .supervisor/trade.stdout.log .supervisor/trade.stderr.log
-```
+- **InfluxDB** on `localhost:8086` — time-series store for trade measurements (equity, drawdown, Sharpe ratio, position size, EMA values).
+- **Grafana** on `localhost:3001` — pre-provisioned with an InfluxDB datasource and a backtest dashboard.
 
-5. Stop:
-
-```bash
-supervisorctl stop trade
-supervisorctl shutdown
-```
-
-Supervisor configuration lives in `supervisord.conf` and `supervisord.d/trade.conf`. Runtime socket/pid/log files are written to `.supervisor/`.
+Each backtest or live session writes data points tagged with a unique `session_id`, so you can compare runs side by side in Grafana.
 
 ## Dependencies
 
-- pandas
-- numpy
-- matplotlib
 - requests
-- websockets
+- pyyaml
 - supervisor

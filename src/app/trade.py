@@ -104,7 +104,7 @@ class TradeApp(CoreApp):
             step=self.step,
         ):
             total += 1
-            self.strategy.ack(candle)
+            self.strategy.warmup(candle)
         self.logger.info(f"Preload warm-up completed total={total}")
 
     def close(self):

@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -15,6 +16,9 @@ class SignalResult:
     signal: str | None = None
     short_ema: float | None = None
     long_ema: float | None = None
+
+
+_RECONCILE_INTERVAL_SEC = 300
 
 
 class CrossMAStrategy(NoActionStrategy):
@@ -48,11 +52,12 @@ class CrossMAStrategy(NoActionStrategy):
         self._values: list[float] = []
         self._current_position: Position | None = None
         self._exposure_ratio: float = 1.0
-        self._last_close: float | None = None
+        self._equity_at_open: float = self.equity
         self._peak_equity: float = self.equity
         self._returns: list[float] = []
         self._prev_equity: float = self.equity
         self._periods_per_year: int = periods_per_year(app_config.values.trade.steps)
+        self._last_reconcile_time: float = time.monotonic()
 
     def _mark_to_market(self, candle: OHCLV):
         close_value = getattr(candle, "close", None)
@@ -61,18 +66,15 @@ class CrossMAStrategy(NoActionStrategy):
 
         close_price = float(close_value)
         if (
-            self._last_close is not None
-            and self._last_close > 0
-            and self._current_position is not None
+            self._current_position is not None
+            and self._current_position.price is not None
+            and self._current_position.price > 0
             and self._current_position.size > 0
         ):
-            bar_return = (close_price - self._last_close) / self._last_close
+            price_return = (close_price - self._current_position.price) / self._current_position.price
             direction = 1.0 if self._current_position.side == "buy" else -1.0
-            pnl = self._current_position.size * bar_return * direction
-            self.equity = max(0.0, self.equity + pnl)
-            self._current_position.size = self.equity * self._exposure_ratio
-
-        self._last_close = close_price
+            unrealized_pnl = self._current_position.size * price_return * direction
+            self.equity = max(0.0, self._equity_at_open + unrealized_pnl)
 
         if self._prev_equity > 0:
             period_return = (self.equity - self._prev_equity) / self._prev_equity
@@ -81,6 +83,86 @@ class CrossMAStrategy(NoActionStrategy):
 
         if self.equity > self._peak_equity:
             self._peak_equity = self.equity
+
+    def reconcile(self):
+        now = time.monotonic()
+        if now - self._last_reconcile_time < _RECONCILE_INTERVAL_SEC:
+            return
+        self._last_reconcile_time = now
+
+        self._logger.info("Reconcile started")
+
+        try:
+            exchange_equity = self.exchange_adapter.get_asset("USDT")
+            exchange_position = self.exchange_adapter.get_position()
+        except Exception as exc:
+            self._logger.warning(f"Reconcile fetch failed: {exc}")
+            return
+
+        local_has_pos = self._current_position is not None
+        exchange_has_pos = exchange_position is not None
+
+        self._logger.info(
+            f"Reconcile state "
+            f"local_position={local_has_pos} exchange_position={exchange_has_pos}"
+        )
+
+        if local_has_pos and not exchange_has_pos:
+            self._logger.warning(
+                f"Reconcile position gone on exchange "
+                f"local_side={self._current_position.side} "
+                f"local_size={self._current_position.size:.4f}"
+            )
+            self._current_position = None
+        elif local_has_pos and exchange_has_pos:
+            if exchange_position.side != self._current_position.side:
+                self._logger.warning(
+                    f"Reconcile side mismatch "
+                    f"local={self._current_position.side} "
+                    f"exchange={exchange_position.side}"
+                )
+            size_diff = exchange_position.size - self._current_position.size
+            self._logger.info(
+                f"Reconcile position "
+                f"local_side={self._current_position.side} "
+                f"exchange_side={exchange_position.side} "
+                f"local_size={self._current_position.size:.4f} "
+                f"exchange_size={exchange_position.size:.4f} "
+                f"size_diff={size_diff:.4f} "
+                f"local_entry={self._current_position.price} "
+                f"exchange_entry={exchange_position.price}"
+            )
+            self._current_position.size = exchange_position.size
+        elif not local_has_pos and exchange_has_pos:
+            self._logger.warning(
+                f"Reconcile exchange has position "
+                f"side={exchange_position.side} "
+                f"size={exchange_position.size:.4f} "
+                f"entry={exchange_position.price} "
+                f"but local is flat"
+            )
+        else:
+            self._logger.info("Reconcile both flat no position")
+
+        equity_diff = exchange_equity - self.equity
+        self._logger.info(
+            f"Reconcile equity "
+            f"local={self.equity:.4f} exchange={exchange_equity:.4f} "
+            f"diff={equity_diff:.4f} "
+            f"equity_at_open_before={self._equity_at_open:.4f}"
+        )
+        self._equity_at_open += equity_diff
+        self.equity = exchange_equity
+        self._prev_equity = self.equity
+        if self.equity > self._peak_equity:
+            self._peak_equity = self.equity
+
+        self._logger.info(
+            f"Reconcile applied "
+            f"equity={self.equity:.4f} "
+            f"equity_at_open={self._equity_at_open:.4f} "
+            f"peak_equity={self._peak_equity:.4f}"
+        )
 
     def _calculate_drawdown(self) -> float:
         if self._peak_equity <= 0:
@@ -104,6 +186,11 @@ class CrossMAStrategy(NoActionStrategy):
 
     def is_short(self, short_ema, long_ema):
         return short_ema < long_ema
+
+    def warmup(self, candle: OHCLV):
+        close_value = getattr(candle, "close", None)
+        if close_value is not None:
+            self._values.append(float(close_value))
 
     def _signal(self, candle: OHCLV) -> SignalResult:
         close_value = getattr(candle, "close", None)
@@ -149,8 +236,21 @@ class CrossMAStrategy(NoActionStrategy):
         return None
 
     def ack(self, candle: OHCLV):
+        self.reconcile()
         self._mark_to_market(candle)
         result = self._signal(candle)
+
+        self._logger.info(
+            f"CrossMAStrategy candle "
+            f"timestamp={getattr(candle, 'timestamp', None)} "
+            f"open={getattr(candle, 'open', None)} "
+            f"high={getattr(candle, 'high', None)} "
+            f"low={getattr(candle, 'low', None)} "
+            f"close={getattr(candle, 'close', None)} "
+            f"volume={getattr(candle, 'volume', None)} "
+            f"short_ema={result.short_ema} long_ema={result.long_ema} "
+            f"equity={self.equity:.4f}"
+        )
 
         if result.signal is not None:
             side = "buy" if result.signal == "LONG" else "sell"
@@ -164,13 +264,20 @@ class CrossMAStrategy(NoActionStrategy):
                 self._exposure_ratio = 1.0
 
             if self._current_position is None:
+                self._equity_at_open = self.equity
                 position = Position(side=side, size=self.equity)
                 open_result = self.exchange_adapter.open(position)
                 if open_result.success:
                     self._current_position = open_result.position or position
                     self._logger.info(
-                        f"CrossMAStrategy signal={result.signal} side={side} "
-                        f"equity={float(self.equity):.4f} size={self.equity:.4f}"
+                        f"CrossMAStrategy open signal={result.signal} side={side} "
+                        f"equity={float(self.equity):.4f} size={self._current_position.size:.4f} "
+                        f"fill_price={self._current_position.price}"
+                    )
+                else:
+                    self._logger.error(
+                        f"CrossMAStrategy open failed signal={result.signal} side={side} "
+                        f"message={open_result.message}"
                     )
 
         position_size = (

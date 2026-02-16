@@ -52,14 +52,20 @@ class BacktestApp(CoreApp):
         self.session_id = uuid.uuid4().hex
         self.measurement_adapter = InfluxAdapter(self.influx_client, session_id=self.session_id)
         self.logger.info(f"Backtest session_id={self.session_id}")
-        self.crossma_strategy = self.init_crossma_strategy(
-            self.simulate_adapter,
-            self.measurement_adapter,
-        )
-        self.drawdown_strategy = self.init_drawdown_strategy(
-            self.simulate_adapter,
-            self.measurement_adapter,
-        )
+        self.warmup_periods = int(self.config.values.crossma.long_length)
+
+        strategy_name = self.config.values.trade.strategy
+        if strategy_name == "crossma":
+            self.strategy = self.init_crossma_strategy(
+                self.simulate_adapter,
+                self.measurement_adapter,
+            )
+        else:
+            self.strategy = self.init_drawdown_strategy(
+                self.simulate_adapter,
+                self.measurement_adapter,
+            )
+        self.logger.info(f"BacktestApp strategy={strategy_name}")
         self.logger.info("BacktestApp initialization completed")
 
     def init_drawdown_strategy(self, exchange_adapter, measurement_adapter):

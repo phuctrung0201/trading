@@ -1,6 +1,13 @@
 import logging
+import sys
 
 from src.app.trade import TradeApp
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    stream=sys.stdout,
+)
 
 
 def main():
@@ -23,28 +30,26 @@ def run_trade():
         logger.info(f"Trade session_id={app.session_id}")
         app.preload()
 
-        logger.info(
-            f"Starting live trade instrument={app.instrument} step={app.step}"
-        )
-        for candle in app.okx_client.stream_prices(
-            instrument=app.instrument, step=app.step
-        ):
-            try:
-                logger.info(
-                    f"Candle timestamp={getattr(candle, 'timestamp', None)} "
-                    f"close={getattr(candle, 'close', None)}"
-                )
-                app.strategy.ack(candle)
-            except Exception:
-                logger.error(
-                    "Strategy ack failed "
-                    f"timestamp={getattr(candle, 'timestamp', None)} "
-                    f"close={getattr(candle, 'close', None)}"
-                )
-                logger.error("Strategy ack exception")
-                raise
-    except KeyboardInterrupt:
-        logger.info("Stopping live trading...")
+        total = 0
+        try:
+            for candle in app.okx_client.stream_prices(
+                instrument=app.instrument, step=app.step
+            ):
+                total += 1
+                try:
+                    app.strategy.ack(candle)
+                except Exception:
+                    logger.error(
+                        "Strategy ack failed "
+                        f"timestamp={getattr(candle, 'timestamp', None)} "
+                        f"close={getattr(candle, 'close', None)}"
+                    )
+                    logger.error("Strategy ack exception")
+                    raise
+        except KeyboardInterrupt:
+            logger.info("Stopping live trading...")
+        logger.info(f"Trade completed total_candles={total}")
+        logger.info(f"Trade session_id={app.session_id}")
     finally:
         app.close()
 

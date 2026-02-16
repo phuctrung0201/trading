@@ -1,4 +1,5 @@
 import logging
+import sys
 
 
 class AppLogger:
@@ -23,7 +24,7 @@ def init_logger(log_level):
     logger.handlers.clear()
     logger.setLevel(getattr(logging, str(log_level).upper(), logging.INFO))
 
-    handler = logging.StreamHandler()
+    handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(handler)
     logger.propagate = False

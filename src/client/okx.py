@@ -73,8 +73,12 @@ class OkxClient:
         resp.raise_for_status()
         result = resp.json()
         if str(result.get("code", "")) != "0":
+            detail = result.get("msg", "")
+            data = result.get("data")
+            if isinstance(data, list) and data:
+                detail = data[0].get("sMsg", detail)
             raise RuntimeError(
-                f"OKX request failed: {result.get('code')} {result.get('msg')}"
+                f"OKX request failed: {result.get('code')} {detail}"
             )
         return result.get("data", [])
 
@@ -88,11 +92,21 @@ class OkxClient:
         }
         return self._signed_request("POST", "/api/v5/trade/order", body)
 
-    def close_position(self, instrument, side):
+    def get_order(self, instrument, order_id):
+        path = f"/api/v5/trade/order?instId={instrument}&ordId={order_id}"
+        data = self._signed_request("GET", path)
+        if not data:
+            return {}
+        return data[0]
+
+    def get_positions(self, instrument):
+        path = f"/api/v5/account/positions?instId={instrument}"
+        return self._signed_request("GET", path)
+
+    def close_position(self, instrument):
         body = {
             "instId": instrument,
             "mgnMode": "cross",
-            "posSide": side,
         }
         return self._signed_request("POST", "/api/v5/trade/close-position", body)
 
@@ -103,8 +117,32 @@ class OkxClient:
         details = data[0].get("details", [])
         for detail in details:
             if detail.get("ccy") == currency:
-                return float(detail.get("availBal", 0))
+                return float(detail.get("eq", 0) or detail.get("availBal", 0))
         return 0.0
+
+    def get_instrument(self, instrument, inst_type="SWAP"):
+        resp = self._session.get(
+            f"{_BASE_URL}/api/v5/public/instruments",
+            params={"instType": inst_type, "instId": instrument},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not data:
+            raise RuntimeError(f"Instrument not found: {instrument}")
+        return data[0]
+
+    def get_mark_price(self, instrument, inst_type="SWAP"):
+        resp = self._session.get(
+            f"{_BASE_URL}/api/v5/public/mark-price",
+            params={"instType": inst_type, "instId": instrument},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not data:
+            raise RuntimeError(f"Mark price not found: {instrument}")
+        return float(data[0]["markPx"])
 
     def set_leverage(self, instrument, leverage, mgn_mode="cross"):
         body = {

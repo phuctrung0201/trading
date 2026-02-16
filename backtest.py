@@ -1,6 +1,13 @@
 import logging
+import sys
 
 from src.app.backtest import BacktestApp
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    stream=sys.stdout,
+)
 
 
 def main():
@@ -21,6 +28,7 @@ def run_backtest():
     okx_client = app.okx_client
 
     try:
+        warmup_count = 0
         total = 0
         try:
             for candle in okx_client.stream_history(
@@ -31,7 +39,14 @@ def run_backtest():
             ):
                 total += 1
                 try:
-                    app.drawdown_strategy.ack(candle)
+                    close_value = getattr(candle, "close", None)
+                    if close_value is not None:
+                        app.simulate_adapter.set_price(float(close_value))
+                    if warmup_count < app.warmup_periods:
+                        app.strategy.warmup(candle)
+                        warmup_count += 1
+                    else:
+                        app.strategy.ack(candle)
                 except Exception:
                     logger.error(
                         "Strategy ack failed "
@@ -47,7 +62,10 @@ def run_backtest():
                 f"start={app.backtest_start} end={app.backtest_end}"
             )
             raise
-        logger.info(f"Backtest completed total_candles={total}")
+        logger.info(
+            f"Backtest completed total_candles={total} "
+            f"warmup={warmup_count} traded={total - warmup_count}"
+        )
         if total == 0:
             logger.warn("No candles returned for configured backtest window; strategy ack did not run")
         logger.info(f"Backtest session_id={app.session_id}")
