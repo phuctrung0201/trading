@@ -34,6 +34,10 @@ class ExchangeAdapter(ABC):
     def get_position(self) -> Position | None:
         raise NotImplementedError
 
+    @abstractmethod
+    def get_equity(self) -> float:
+        raise NotImplementedError
+
 
 class Measurable(ABC):
     @abstractmethod
@@ -52,11 +56,27 @@ class SimulateAdapter(ExchangeAdapter):
         self.asset = initial_equity
         self.position: Position | None = None
         self._last_price: float = 0.0
+        self._equity_at_open: float = 0.0
 
     def set_price(self, price: float):
         self._last_price = price
 
+    def get_equity(self) -> float:
+        return max(0.0, self.asset + self._calculate_unrealized_pnl())
+
+    def _calculate_unrealized_pnl(self) -> float:
+        if self.position is None:
+            return 0.0
+        if self.position.price is None or self.position.price <= 0:
+            return 0.0
+        if self._last_price <= 0:
+            return 0.0
+        price_return = (self._last_price - self.position.price) / self.position.price
+        direction = 1.0 if self.position.side == "buy" else -1.0
+        return self.position.size * price_return * direction
+
     def open(self, position: Position) -> OpenResult:
+        self._equity_at_open = self.get_equity()
         fill_price = position.price if position.price is not None else self._last_price
         filled = Position(side=position.side, size=position.size, price=fill_price)
         self.position = filled
@@ -65,12 +85,9 @@ class SimulateAdapter(ExchangeAdapter):
     def close(self, position: Position) -> bool:
         if self.position is None:
             return False
-        if self.position.price and self.position.price > 0 and self._last_price > 0:
-            price_return = (self._last_price - self.position.price) / self.position.price
-            direction = 1.0 if self.position.side == "buy" else -1.0
-            realized_pnl = self.position.size * price_return * direction
-            self.asset += realized_pnl
+        self.asset += self._calculate_unrealized_pnl()
         self.position = None
+        self._equity_at_open = 0.0
         return True
 
     def get_asset(self, asset: str) -> float:
@@ -81,11 +98,13 @@ class SimulateAdapter(ExchangeAdapter):
         return self.position
 
 
-class OkxExchangeAdapter(ExchangeAdapter):
+class OkxExchangeAdapter(SimulateAdapter):
     MAX_RETRIES = 3
     MARGIN_REDUCE = 0.8
 
     def __init__(self, okx_client, instrument, leverage):
+        initial_equity = float(okx_client.get_asset(currency="USDT"))
+        super().__init__(initial_equity=initial_equity)
         self._okx = okx_client
         self._instrument = instrument
         self._leverage = leverage
@@ -101,6 +120,7 @@ class OkxExchangeAdapter(ExchangeAdapter):
 
     def _usd_to_contracts(self, usd_size: float) -> float:
         self._ensure_contract_info()
+        assert self._ct_val is not None and self._lot_sz is not None
         mark_price = self._okx.get_mark_price(self._instrument)
         contracts = usd_size / (self._ct_val * mark_price)
         lots = int(contracts / self._lot_sz) * self._lot_sz
@@ -108,6 +128,24 @@ class OkxExchangeAdapter(ExchangeAdapter):
 
     def _is_margin_error(self, message: str) -> bool:
         return "Insufficient" in message and "margin" in message
+
+    def fetch_asset(self, asset: str) -> float:
+        return self._okx.get_asset(currency=asset)
+
+    def fetch_position(self) -> Position | None:
+        data = self._okx.get_positions(self._instrument)
+        if not data:
+            return None
+        pos_data = data[0]
+        pos_qty = float(pos_data.get("pos", "0"))
+        if pos_qty == 0:
+            return None
+        self._ensure_contract_info()
+        assert self._ct_val is not None
+        avg_px = float(pos_data.get("avgPx", "0"))
+        notional = abs(pos_qty) * self._ct_val * avg_px
+        side = "buy" if pos_qty > 0 else "sell"
+        return Position(side=side, size=notional, price=avg_px if avg_px > 0 else None)
 
     def open(self, position: Position) -> OpenResult:
         if not self._leverage_set:
@@ -143,6 +181,7 @@ class OkxExchangeAdapter(ExchangeAdapter):
                         fill_price = float(avg_px)
 
                 filled = Position(side=side, size=usd_size, price=fill_price)
+                super().open(filled)
                 return OpenResult(success=True, position=filled)
             except Exception as exc:
                 last_error = str(exc)
@@ -159,28 +198,12 @@ class OkxExchangeAdapter(ExchangeAdapter):
                 self._okx.close_position(
                     instrument=self._instrument,
                 )
+                super().close(position)
                 return True
             except Exception:
                 delay = min(30.0, 1.0 * (2 ** attempt))
                 time.sleep(delay)
         return False
-
-    def get_asset(self, asset: str) -> float:
-        return self._okx.get_asset(currency=asset)
-
-    def get_position(self) -> Position | None:
-        data = self._okx.get_positions(self._instrument)
-        if not data:
-            return None
-        pos_data = data[0]
-        pos_qty = float(pos_data.get("pos", "0"))
-        if pos_qty == 0:
-            return None
-        self._ensure_contract_info()
-        avg_px = float(pos_data.get("avgPx", "0"))
-        notional = abs(pos_qty) * self._ct_val * avg_px
-        side = "buy" if pos_qty > 0 else "sell"
-        return Position(side=side, size=notional, price=avg_px if avg_px > 0 else None)
 
 
 class InfluxAdapter(MeasurementAdapter):

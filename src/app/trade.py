@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from src.app.adapter import InfluxAdapter, OkxExchangeAdapter
+from src.app.config import AppConfig
 from src.app.core import CoreApp
+from src.app.logger import AppLogger
 from src.strategy.crossma import CrossMAStrategy
 from src.strategy.drawdown import DrawdownStrategy
 
@@ -48,6 +50,7 @@ class TradeApp(CoreApp):
         self.logger.info("TradeApp initialization completed")
 
     def _init_crossma_strategy(self):
+        assert self.logger is not None and self.config is not None
         self.logger.info("Initializing CrossMAStrategy")
         strategy = CrossMAStrategy(
             exchange_adapter=self.exchange_adapter,
@@ -62,6 +65,7 @@ class TradeApp(CoreApp):
         return strategy
 
     def _init_drawdown_strategy(self):
+        assert self.logger is not None and self.config is not None
         self.logger.info("Initializing DrawdownStrategy")
         strategy = DrawdownStrategy(
             exchange_adapter=self.exchange_adapter,
@@ -90,6 +94,7 @@ class TradeApp(CoreApp):
         return timedelta(days=1)
 
     def preload(self):
+        assert self.logger is not None and self.okx_client is not None
         duration = self._parse_duration(self.preload_duration)
         now = datetime.now(timezone.utc)
         start = (now - duration).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -104,10 +109,14 @@ class TradeApp(CoreApp):
             step=self.step,
         ):
             total += 1
+            close_value = getattr(candle, "close", None)
+            if close_value is not None:
+                self.exchange_adapter.set_price(float(close_value))
             self.strategy.warmup(candle)
         self.logger.info(f"Preload warm-up completed total={total}")
 
     def close(self):
+        assert self.logger is not None
         self.logger.info("TradeApp closing")
         if self.influx_client is not None:
             self.influx_client.close()

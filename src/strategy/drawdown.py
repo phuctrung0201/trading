@@ -31,13 +31,14 @@ class DrawdownStrategy(CrossMAStrategy):
         self.init_threshold(threshold=drawdown_config.threshold_scale_map)
 
     def calculate_drawdown(self):
-        self._equity_window.append(float(self.equity))
+        equity = self.exchange_adapter.get_equity()
+        self._equity_window.append(equity)
         if len(self._equity_window) > self.drawdown_window:
             self._equity_window = self._equity_window[-self.drawdown_window :]
         peak = max(self._equity_window)
         if peak <= 0:
             return 0.0
-        return (float(self.equity) - peak) / peak
+        return (equity - peak) / peak
 
     def scale_position(self, drawdown):
         dd = abs(drawdown)
@@ -49,11 +50,12 @@ class DrawdownStrategy(CrossMAStrategy):
 
     def ack(self, candle: OHCLV):
         self.reconcile()
-        self._mark_to_market(candle)
+        self._mark_to_market()
         drawdown = self.calculate_drawdown()
         scale = self.scale_position(drawdown)
         result = self._signal(candle)
 
+        equity = self.exchange_adapter.get_equity()
         self._logger.info(
             f"DrawdownStrategy candle "
             f"timestamp={getattr(candle, 'timestamp', None)} "
@@ -63,7 +65,7 @@ class DrawdownStrategy(CrossMAStrategy):
             f"close={getattr(candle, 'close', None)} "
             f"volume={getattr(candle, 'volume', None)} "
             f"short_ema={result.short_ema} long_ema={result.long_ema} "
-            f"equity={self.equity:.4f} drawdown={drawdown:.4f} scale={scale:.4f}"
+            f"equity={equity:.4f} drawdown={drawdown:.4f} scale={scale:.4f}"
         )
 
         if result.signal is not None:
@@ -80,8 +82,8 @@ class DrawdownStrategy(CrossMAStrategy):
 
             if self._current_position is None:
                 self._exposure_ratio = scale
-                self._equity_at_open = self.equity
-                size = float(self.equity) * float(scale)
+                equity = self.exchange_adapter.get_equity()
+                size = equity * float(scale)
                 position = Position(side=side, size=size)
                 open_result = self.exchange_adapter.open(position)
                 if open_result.success:
@@ -89,7 +91,7 @@ class DrawdownStrategy(CrossMAStrategy):
                     self._logger.info(
                         f"DrawdownStrategy open signal={result.signal} side={side} "
                         f"drawdown={float(drawdown):.4f} scale={float(scale):.4f} "
-                        f"equity={float(self.equity):.4f} "
+                        f"equity={equity:.4f} "
                         f"size={self._current_position.size:.4f} "
                         f"fill_price={self._current_position.price}"
                     )
@@ -110,8 +112,8 @@ class DrawdownStrategy(CrossMAStrategy):
             self._current_position = None
 
             self._exposure_ratio = scale
-            self._equity_at_open = self.equity
-            size = float(self.equity) * float(scale)
+            equity = self.exchange_adapter.get_equity()
+            size = equity * float(scale)
             position = Position(side=side, size=size)
             open_result = self.exchange_adapter.open(position)
             if open_result.success:
@@ -119,7 +121,7 @@ class DrawdownStrategy(CrossMAStrategy):
                 self._logger.info(
                     f"DrawdownStrategy resized side={side} "
                     f"scale={float(scale):.4f} "
-                    f"equity={float(self.equity):.4f} "
+                    f"equity={equity:.4f} "
                     f"size={self._current_position.size:.4f} "
                     f"fill_price={self._current_position.price}"
                 )
@@ -137,7 +139,7 @@ class DrawdownStrategy(CrossMAStrategy):
             position_size = -position_size
         trade_measurement = TradeMeasurement(
             timestamp=self._measurement_timestamp(candle),
-            equity=float(self.equity),
+            equity=self.exchange_adapter.get_equity(),
             position_size=position_size,
             position_side=position_side,
             drawdown=float(drawdown),

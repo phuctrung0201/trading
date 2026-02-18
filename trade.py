@@ -37,6 +37,9 @@ def run_trade():
             ):
                 total += 1
                 try:
+                    close_value = getattr(candle, "close", None)
+                    if close_value is not None:
+                        app.exchange_adapter.set_price(float(close_value))
                     app.strategy.ack(candle)
                 except Exception:
                     logger.error(
