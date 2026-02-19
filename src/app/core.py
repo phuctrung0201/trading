@@ -5,8 +5,10 @@ from src.client.okx import OkxClient
 
 
 class CoreApp:
-    def init_config(self, config_path=None):
-        return AppConfig.load_yaml(config_path)
+    def init_config(self, setup_name: str | None = None):
+        if setup_name:
+            return AppConfig.load_setup(setup_name)
+        return AppConfig.load_yaml()
 
     def init_logger(self, log_level):
         return build_logger(log_level)

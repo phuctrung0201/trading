@@ -2,6 +2,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+SETUP_DIR = Path("setup")
+
+
+def list_setups() -> list[str]:
+    """Return sorted setup names from setup/ folder."""
+    if not SETUP_DIR.is_dir():
+        return []
+    return sorted(p.stem for p in SETUP_DIR.glob("*.yaml"))
+
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -154,3 +163,7 @@ class AppConfig:
         if not isinstance(data, dict):
             raise ValueError("Config root must be a mapping")
         return cls(value=ConfigValue.from_dict(data), raw=data)
+
+    @classmethod
+    def load_setup(cls, name: str) -> "AppConfig":
+        return cls.load_yaml(str(SETUP_DIR / f"{name}.yaml"))

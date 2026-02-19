@@ -1,6 +1,11 @@
+import argparse
 import logging
+import os
+import signal
+import subprocess
 import sys
 
+from src.app.config import list_setups
 from src.app.trade import TradeApp
 
 logging.basicConfig(
@@ -10,16 +15,50 @@ logging.basicConfig(
 )
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run live trading")
+    parser.add_argument("--setup", type=str, default=None, help="Setup name from setup/ folder")
+    return parser.parse_args()
+
+
 def main():
-    try:
-        run_trade()
-    except Exception as exc:
-        logging.getLogger("trading.app").error(f"Trade entry failed: {exc}")
-        raise
+    args = parse_args()
+    if args.setup:
+        run_trade(args.setup)
+    else:
+        setups = list_setups()
+        if not setups:
+            run_trade(None)
+            return
+        run_all_setups(setups)
 
 
-def run_trade():
-    app = TradeApp()
+def run_all_setups(setups: list[str]):
+    logger = logging.getLogger("trading.app")
+    children: list[subprocess.Popen] = []
+
+    for name in setups:
+        logger.info(f"Spawning trade process for setup={name}")
+        proc = subprocess.Popen(
+            [sys.executable, "-u", "trade.py", "--setup", name],
+            cwd=os.getcwd(),
+        )
+        children.append(proc)
+
+    def forward_signal(signum, _frame):
+        for proc in children:
+            if proc.poll() is None:
+                proc.send_signal(signum)
+
+    signal.signal(signal.SIGINT, forward_signal)
+    signal.signal(signal.SIGTERM, forward_signal)
+
+    for proc in children:
+        proc.wait()
+
+
+def run_trade(setup_name: str | None):
+    app = TradeApp(setup_name=setup_name)
     if app.logger is None:
         raise RuntimeError("TradeApp logger is not initialized")
     if app.okx_client is None:

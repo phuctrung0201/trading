@@ -1,9 +1,12 @@
-.PHONY: trade trade-stop trade-status trade-logs backtest monitor monitor-down monitor-logs
+.PHONY: trade trade-one trade-stop trade-status trade-logs backtest backtest-one monitor monitor-down monitor-logs
 
 trade:
 	@mkdir -p .supervisor
 	@supervisord -c supervisord.conf 2>/dev/null || true
 	supervisorctl -c supervisord.conf start trade
+
+trade-one:
+	python trade.py --setup $(SETUP)
 
 trade-stop:
 	supervisorctl -c supervisord.conf stop trade
@@ -17,6 +20,9 @@ trade-logs:
 
 backtest:
 	python backtest.py
+
+backtest-one:
+	python backtest.py --setup $(SETUP)
 
 monitor:
 	-docker rm -f influxdb grafana 2>/dev/null

@@ -207,9 +207,11 @@ class OkxExchangeAdapter(SimulateAdapter):
 
 
 class InfluxAdapter(MeasurementAdapter):
-    def __init__(self, influxdb_client, session_id):
+    def __init__(self, influxdb_client, session_id, setup_name: str | None = None):
         self.influxdb_client = influxdb_client
         self.tags = {"session_id": session_id}
+        if setup_name:
+            self.tags["setup"] = setup_name
 
     def record(self, measurable):
         payload = {"tags": self.tags, "fields": measurable.to_dict()}

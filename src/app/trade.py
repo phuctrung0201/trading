@@ -10,11 +10,12 @@ from src.strategy.drawdown import DrawdownStrategy
 
 
 class TradeApp(CoreApp):
-    def __init__(self):
+    def __init__(self, setup_name: str | None = None):
         super().__init__()
-        self.config = self.init_config()
+        self.setup_name = setup_name
+        self.config = self.init_config(setup_name)
         self.logger = self.init_logger(self.config.values.log_level)
-        self.logger.info("Initializing TradeApp dependencies")
+        self.logger.info(f"Initializing TradeApp dependencies setup={setup_name or 'default'}")
         self.okx_client = self.init_okx_client(self.config)
         self.influx_client = (
             self.init_influxdb_client(self.config) if self.config.values.influx.enabled else None
@@ -39,7 +40,7 @@ class TradeApp(CoreApp):
             leverage=trade_config.leverage,
         )
         self.session_id = uuid.uuid4().hex
-        self.measurement_adapter = InfluxAdapter(self.influx_client, session_id=self.session_id)
+        self.measurement_adapter = InfluxAdapter(self.influx_client, session_id=self.session_id, setup_name=self.setup_name)
 
         strategy_name = trade_config.strategy
         if strategy_name == "crossma":

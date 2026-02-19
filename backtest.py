@@ -1,9 +1,13 @@
+import argparse
 import csv
 import logging
 import os
+import signal
+import subprocess
 import sys
 
 from src.app.backtest import BacktestApp
+from src.app.config import list_setups
 from src.client.ohclv import OHCLV
 
 logging.basicConfig(
@@ -66,16 +70,50 @@ def load_candles(path: str):
             )
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run backtest")
+    parser.add_argument("--setup", type=str, default=None, help="Setup name from setup/ folder")
+    return parser.parse_args()
+
+
 def main():
-    try:
-        run_backtest()
-    except Exception as exc:
-        logging.getLogger("trading.app").error(f"Backtest entry failed: {exc}")
-        raise
+    args = parse_args()
+    if args.setup:
+        run_backtest(args.setup)
+    else:
+        setups = list_setups()
+        if not setups:
+            run_backtest(None)
+            return
+        run_all_setups(setups)
 
 
-def run_backtest():
-    app = BacktestApp()
+def run_all_setups(setups: list[str]):
+    logger = logging.getLogger("trading.app")
+    children: list[subprocess.Popen] = []
+
+    for name in setups:
+        logger.info(f"Spawning backtest process for setup={name}")
+        proc = subprocess.Popen(
+            [sys.executable, "-u", "backtest.py", "--setup", name],
+            cwd=os.getcwd(),
+        )
+        children.append(proc)
+
+    def forward_signal(signum, _frame):
+        for proc in children:
+            if proc.poll() is None:
+                proc.send_signal(signum)
+
+    signal.signal(signal.SIGINT, forward_signal)
+    signal.signal(signal.SIGTERM, forward_signal)
+
+    for proc in children:
+        proc.wait()
+
+
+def run_backtest(setup_name: str | None):
+    app = BacktestApp(setup_name=setup_name)
     if app.logger is None:
         raise RuntimeError("BacktestApp logger is not initialized")
     if app.okx_client is None:

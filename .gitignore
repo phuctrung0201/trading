@@ -10,6 +10,7 @@ result*.png
 # Credentials
 setup.py
 setup.yaml
+setup/
 
 # Supervisor runtime artifacts
 .supervisor/*
