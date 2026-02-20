@@ -14,13 +14,15 @@
         "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
         "query": {
           "queryType": "sql",
-          "rawSql": "SELECT DISTINCT session_id FROM trading.trade_event ORDER BY session_id"
+          "rawSql": "SELECT DISTINCT session_id FROM trading.trade_event ORDER BY session_id DESC"
         },
+        "sort": 0,
         "multi": true,
-        "includeAll": true,
-        "current": { "text": "All", "value": "$__all" },
-        "refresh": 2,
-        "definition": "SELECT DISTINCT session_id FROM trading.trade_event ORDER BY session_id"
+        "includeAll": false,
+        "label": "Session",
+        "current": {},
+        "refresh": 1,
+        "definition": "SELECT DISTINCT session_id FROM trading.trade_event ORDER BY session_id DESC"
       },
       {
         "name": "setup",
@@ -28,13 +30,15 @@
         "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
         "query": {
           "queryType": "sql",
-          "rawSql": "SELECT DISTINCT setup FROM trading.trade_event ORDER BY setup"
+          "rawSql": "SELECT DISTINCT setup FROM trading.trade_event ORDER BY setup DESC"
         },
+        "sort": 0,
         "multi": true,
-        "includeAll": true,
-        "current": { "text": "All", "value": "$__all" },
-        "refresh": 2,
-        "definition": "SELECT DISTINCT setup FROM trading.trade_event ORDER BY setup"
+        "includeAll": false,
+        "label": "Setup",
+        "current": {},
+        "refresh": 1,
+        "definition": "SELECT DISTINCT setup FROM trading.trade_event ORDER BY setup DESC"
       }
     ]
   },
