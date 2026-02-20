@@ -8,6 +8,8 @@ from src.app.logger import AppLogger
 from src.client.ohclv import OHCLV
 from src.indicator.ema import EMA
 from src.measurement.trade import TradeMeasurement
+from src.measurement.event import TradeEventMeasurement
+from src.measurement.ops import OpsMeasurement
 from src.app.adapter import ExchangeAdapter, MeasurementAdapter, Position
 from src.strategy.noaction import NoActionStrategy
 
@@ -52,6 +54,7 @@ class CrossMAStrategy(NoActionStrategy):
         self._prev_equity: float = initial_equity
         self._periods_per_year: int = periods_per_year(app_config.values.trade.steps)
         self._last_reconcile_time: float = time.monotonic()
+        self._last_close_price: float = 0.0
 
     def _mark_to_market(self):
         equity = self.exchange_adapter.get_equity()
@@ -137,6 +140,18 @@ class CrossMAStrategy(NoActionStrategy):
             f"local={local_equity:.4f} exchange={exchange_equity:.4f} "
             f"diff={equity_diff:.4f}"
         )
+
+        position_match = (local_has_pos == exchange_has_pos)
+        correction = None
+        if local_has_pos and not exchange_has_pos:
+            correction = "cleared local position"
+        elif not local_has_pos and exchange_has_pos:
+            correction = "exchange has unexpected position"
+        elif local_has_pos and exchange_has_pos:
+            assert self._current_position is not None
+            if exchange_position.side != self._current_position.side:
+                correction = f"side mismatch local={self._current_position.side} exchange={exchange_position.side}"
+
         adapter.asset = exchange_equity
         self._prev_equity = self.exchange_adapter.get_equity()
         if self.exchange_adapter.get_equity() > self._peak_equity:
@@ -147,6 +162,16 @@ class CrossMAStrategy(NoActionStrategy):
             f"equity={self.exchange_adapter.get_equity():.4f} "
             f"peak_equity={self._peak_equity:.4f}"
         )
+
+        now_ns = int(time.time() * 1_000_000_000)
+        ops = OpsMeasurement(
+            timestamp=now_ns,
+            type="reconcile",
+            reconcile_equity_diff=equity_diff,
+            reconcile_position_match=position_match,
+            reconcile_correction=correction,
+        )
+        self.measurement_adapter.record(ops)
 
     def _calculate_drawdown(self) -> float:
         if self._peak_equity <= 0:
@@ -200,6 +225,37 @@ class CrossMAStrategy(NoActionStrategy):
             signal = "SHORT"
         return SignalResult(signal=signal, short_ema=short_ema, long_ema=long_ema)
 
+    def _emit_event(self, candle: OHCLV, event: str,
+                    signal_result: SignalResult | None = None,
+                    fill_price: float | None = None,
+                    pnl: float | None = None,
+                    signal: str | None = None,
+                    reason: str | None = None):
+        position_size = (
+            float(self._current_position.size) if self._current_position is not None else 0.0
+        )
+        position_side = self._current_position.side if self._current_position is not None else "flat"
+        if position_side == "sell":
+            position_size = -position_size
+        event_measurement = TradeEventMeasurement(
+            timestamp=self._measurement_timestamp(candle),
+            event=event,
+            equity=self.exchange_adapter.get_equity(),
+            close_price=float(getattr(candle, "close", 0) or 0),
+            position_size=position_size,
+            position_side=position_side,
+            drawdown=self._calculate_drawdown(),
+            sharpe_ratio=self._calculate_sharpe_ratio(),
+            short_ema=signal_result.short_ema if signal_result else None,
+            long_ema=signal_result.long_ema if signal_result else None,
+            exposure_ratio=self._exposure_ratio,
+            fill_price=fill_price,
+            pnl=pnl,
+            signal=signal,
+            reason=reason,
+        )
+        self.measurement_adapter.record(event_measurement)
+
     def _measurement_timestamp(self, candle: OHCLV) -> int | None:
         raw = getattr(candle, "timestamp", None)
         if raw is None:
@@ -240,11 +296,19 @@ class CrossMAStrategy(NoActionStrategy):
         if result.signal is not None:
             side = "buy" if result.signal == "LONG" else "sell"
             if self._current_position is not None and self._current_position.side != side:
+                close_pnl = self.exchange_adapter._calculate_unrealized_pnl() if hasattr(self.exchange_adapter, '_calculate_unrealized_pnl') else 0.0
                 self._logger.info(
                     f"CrossMAStrategy closing side={self._current_position.side} "
                     f"size={self._current_position.size:.4f}"
                 )
                 self.exchange_adapter.close(self._current_position)
+                self._emit_event(
+                    candle, "close", signal_result=result,
+                    fill_price=self._last_close_price,
+                    pnl=close_pnl,
+                    signal=result.signal,
+                    reason=f"signal flip to {result.signal}",
+                )
                 self._current_position = None
                 self._exposure_ratio = 1.0
 
@@ -259,12 +323,24 @@ class CrossMAStrategy(NoActionStrategy):
                         f"equity={equity:.4f} size={self._current_position.size:.4f} "
                         f"fill_price={self._current_position.price}"
                     )
+                    self._emit_event(
+                        candle, "open", signal_result=result,
+                        fill_price=self._current_position.price,
+                        signal=result.signal,
+                        reason=f"EMA crossover {result.signal}",
+                    )
                 else:
                     self._logger.error(
                         f"CrossMAStrategy open failed signal={result.signal} side={side} "
                         f"message={open_result.message}"
                     )
+                    self._emit_event(
+                        candle, "error", signal_result=result,
+                        reason=f"open failed: {open_result.message}",
+                    )
 
+        close_price = float(getattr(candle, "close", 0) or 0)
+        self._last_close_price = close_price
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
         )
@@ -282,5 +358,7 @@ class CrossMAStrategy(NoActionStrategy):
             sharpe_ratio=sharpe_ratio,
             short_ema=result.short_ema,
             long_ema=result.long_ema,
+            close_price=close_price,
+            exposure_ratio=self._exposure_ratio,
         )
         self.measurement_adapter.record(trade_measurement)

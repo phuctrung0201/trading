@@ -1,6 +1,6 @@
 import uuid
 
-from src.app.adapter import InfluxAdapter, SimulateAdapter
+from src.app.adapter import ClickHouseAdapter, SimulateAdapter
 from src.app.core import CoreApp
 from src.strategy.crossma import CrossMAStrategy
 from src.strategy.drawdown import DrawdownStrategy
@@ -25,23 +25,24 @@ class BacktestApp(CoreApp):
         )
         return strategy
 
-    def __init__(self, setup_name: str | None = None):
+    def __init__(self, setup_name: str):
         super().__init__()
         self.setup_name = setup_name
         self.config = self.init_config(setup_name)
         self.logger = self.init_logger(self.config.values.log_level)
         self.logger.info(f"Initializing BacktestApp dependencies setup={setup_name or 'default'}")
         self.okx_client = self.init_okx_client(self.config)
-        self.influx_client = (
-            self.init_influxdb_client(self.config) if self.config.values.influx.enabled else None
+        self.clickhouse_client = (
+            self.init_clickhouse_client(self.config) if self.config.values.clickhouse.enabled else None
         )
         self.logger.info(
             f"BacktestApp clients ready demo={self.config.values.trade.demo} "
-            f"influx_enabled={self.config.values.influx.enabled}"
+            f"clickhouse_enabled={self.config.values.clickhouse.enabled}"
         )
 
         self.instrument = self.config.values.trade.instrument
         self.step = self.config.values.trade.steps
+        self.strategy_name = self.config.values.trade.strategy
         self.backtest_start = self.config.values.backtest.start
         self.backtest_end = self.config.values.backtest.end
         self.logger.info(
@@ -51,7 +52,13 @@ class BacktestApp(CoreApp):
 
         self.simulate_adapter = SimulateAdapter()
         self.session_id = uuid.uuid4().hex
-        self.measurement_adapter = InfluxAdapter(self.influx_client, session_id=self.session_id, setup_name=self.setup_name)
+        self.measurement_adapter = ClickHouseAdapter(
+            clickhouse_client=self.clickhouse_client,
+            session_id=self.session_id,
+            setup_name=self.setup_name,
+            instrument=self.instrument,
+            strategy=self.strategy_name,
+        )
         self.logger.info(f"Backtest session_id={self.session_id}")
         self.warmup_periods = int(self.config.values.crossma.long_length)
 

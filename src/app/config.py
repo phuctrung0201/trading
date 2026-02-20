@@ -37,13 +37,12 @@ def periods_per_year(steps: str) -> int:
 
 
 @dataclass
-class InfluxValue:
+class ClickHouseValue:
     enabled: bool = False
-    url: str = "http://localhost:8086"
-    org: str = "trading"
-    bucket: str = "trading"
-    token: str = ""
-    write_behavior: dict[str, Any] = field(default_factory=dict)
+    url: str = "http://localhost:8123"
+    database: str = "trading"
+    user: str = "default"
+    password: str = "trading"
 
 
 @dataclass
@@ -87,7 +86,7 @@ class BacktestValue:
 @dataclass
 class ConfigValue:
     log_level: str = "INFO"
-    influx: InfluxValue = field(default_factory=InfluxValue)
+    clickhouse: ClickHouseValue = field(default_factory=ClickHouseValue)
     okx: OkxValue = field(default_factory=OkxValue)
     crossma: CrossMAValue = field(default_factory=CrossMAValue)
     drawdown: DrawdownValue = field(default_factory=DrawdownValue)
@@ -96,7 +95,7 @@ class ConfigValue:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ConfigValue":
-        influx = _as_dict(data.get("influx"))
+        clickhouse = _as_dict(data.get("clickhouse"))
         okx = _as_dict(data.get("okx"))
         crossma = _as_dict(data.get("crossma"))
         drawdown = _as_dict(data.get("drawdown"))
@@ -105,13 +104,12 @@ class ConfigValue:
 
         return cls(
             log_level=str(data.get("log_level", "INFO")),
-            influx=InfluxValue(
-                enabled=bool(influx.get("enabled", False)),
-                url=str(influx.get("url", "http://localhost:8086")),
-                org=str(influx.get("org", "trading")),
-                bucket=str(influx.get("bucket", "trading")),
-                token=str(influx.get("token", "")),
-                write_behavior=_as_dict(influx.get("write_behavior")),
+            clickhouse=ClickHouseValue(
+                enabled=bool(clickhouse.get("enabled", False)),
+                url=str(clickhouse.get("url", "http://localhost:8123")),
+                database=str(clickhouse.get("database", "trading")),
+                user=str(clickhouse.get("user", "default")),
+                password=str(clickhouse.get("password", "")),
             ),
             okx=OkxValue(
                 api_key=str(okx.get("api_key", "")),
@@ -154,16 +152,12 @@ class AppConfig:
         return self.value
 
     @classmethod
-    def load_yaml(cls, config_path: str | None = None) -> "AppConfig":
+    def load_setup(cls, name: str) -> "AppConfig":
         import yaml
 
-        path = Path(config_path or "setup.yaml")
+        path = SETUP_DIR / f"{name}.yaml"
         with open(path, "r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
         if not isinstance(data, dict):
             raise ValueError("Config root must be a mapping")
         return cls(value=ConfigValue.from_dict(data), raw=data)
-
-    @classmethod
-    def load_setup(cls, name: str) -> "AppConfig":
-        return cls.load_yaml(str(SETUP_DIR / f"{name}.yaml"))

@@ -33,6 +33,14 @@ class OkxClient:
         self.passphrase = passphrase
         self.demo = demo
         self._session = requests.Session()
+        self._api_callback = None
+
+    def set_api_callback(self, callback):
+        self._api_callback = callback
+
+    def _notify_api(self, latency_ms: int, response_code: int, source: str):
+        if self._api_callback:
+            self._api_callback(latency_ms=latency_ms, response_code=response_code, source=source)
 
     def _signed_request(self, method, path, body=None):
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -56,6 +64,7 @@ class OkxClient:
         if self.demo:
             headers["x-simulated-trading"] = "1"
 
+        t0 = time.monotonic()
         if method.upper() == "GET":
             resp = self._session.get(
                 f"{_BASE_URL}{path}",
@@ -69,6 +78,8 @@ class OkxClient:
                 data=body_str,
                 timeout=15,
             )
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        self._notify_api(latency_ms=latency_ms, response_code=resp.status_code, source=path)
 
         resp.raise_for_status()
         result = resp.json()

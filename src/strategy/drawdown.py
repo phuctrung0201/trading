@@ -72,11 +72,19 @@ class DrawdownStrategy(CrossMAStrategy):
             side = "buy" if result.signal == "LONG" else "sell"
 
             if self._current_position is not None and self._current_position.side != side:
+                close_pnl = self.exchange_adapter._calculate_unrealized_pnl() if hasattr(self.exchange_adapter, '_calculate_unrealized_pnl') else 0.0
                 self._logger.info(
                     f"DrawdownStrategy closing side={self._current_position.side} "
                     f"size={self._current_position.size:.4f}"
                 )
                 self.exchange_adapter.close(self._current_position)
+                self._emit_event(
+                    candle, "close", signal_result=result,
+                    fill_price=self._last_close_price,
+                    pnl=close_pnl,
+                    signal=result.signal,
+                    reason=f"signal flip to {result.signal}",
+                )
                 self._current_position = None
                 self._exposure_ratio = 1.0
 
@@ -95,10 +103,20 @@ class DrawdownStrategy(CrossMAStrategy):
                         f"size={self._current_position.size:.4f} "
                         f"fill_price={self._current_position.price}"
                     )
+                    self._emit_event(
+                        candle, "open", signal_result=result,
+                        fill_price=self._current_position.price,
+                        signal=result.signal,
+                        reason=f"EMA crossover {result.signal} scale={scale:.4f}",
+                    )
                 else:
                     self._logger.error(
                         f"DrawdownStrategy open failed signal={result.signal} side={side} "
                         f"message={open_result.message}"
+                    )
+                    self._emit_event(
+                        candle, "error", signal_result=result,
+                        reason=f"open failed: {open_result.message}",
                     )
 
         if self._current_position is not None and scale != self._exposure_ratio:
@@ -125,12 +143,23 @@ class DrawdownStrategy(CrossMAStrategy):
                     f"size={self._current_position.size:.4f} "
                     f"fill_price={self._current_position.price}"
                 )
+                self._emit_event(
+                    candle, "resize", signal_result=result,
+                    fill_price=self._current_position.price,
+                    reason=f"drawdown scale {self._exposure_ratio:.4f} -> {scale:.4f}",
+                )
             else:
                 self._logger.error(
                     f"DrawdownStrategy resize failed side={side} "
                     f"message={open_result.message}"
                 )
+                self._emit_event(
+                    candle, "error", signal_result=result,
+                    reason=f"resize failed: {open_result.message}",
+                )
 
+        close_price = float(getattr(candle, "close", 0) or 0)
+        self._last_close_price = close_price
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
         )
@@ -146,5 +175,7 @@ class DrawdownStrategy(CrossMAStrategy):
             sharpe_ratio=self._calculate_sharpe_ratio(),
             short_ema=result.short_ema,
             long_ema=result.long_ema,
+            close_price=close_price,
+            exposure_ratio=self._exposure_ratio,
         )
         self.measurement_adapter.record(trade_measurement)

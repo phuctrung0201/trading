@@ -28,8 +28,7 @@ def main():
     else:
         setups = list_setups()
         if not setups:
-            run_trade(None)
-            return
+            raise SystemExit("No setups found in setup/ folder")
         run_all_setups(setups)
 
 
@@ -57,7 +56,7 @@ def run_all_setups(setups: list[str]):
         proc.wait()
 
 
-def run_trade(setup_name: str | None):
+def run_trade(setup_name: str):
     app = TradeApp(setup_name=setup_name)
     if app.logger is None:
         raise RuntimeError("TradeApp logger is not initialized")
@@ -80,13 +79,16 @@ def run_trade(setup_name: str | None):
                     if close_value is not None:
                         app.exchange_adapter.set_price(float(close_value))
                     app.strategy.ack(candle)
-                except Exception:
-                    logger.error(
-                        "Strategy ack failed "
+                    app.emit_tick_ops()
+                except Exception as exc:
+                    msg = (
+                        f"Strategy ack failed "
                         f"timestamp={getattr(candle, 'timestamp', None)} "
                         f"close={getattr(candle, 'close', None)}"
                     )
+                    logger.error(msg)
                     logger.error("Strategy ack exception")
+                    app.emit_error_ops(str(exc))
                     raise
         except KeyboardInterrupt:
             logger.info("Stopping live trading...")

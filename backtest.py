@@ -83,8 +83,7 @@ def main():
     else:
         setups = list_setups()
         if not setups:
-            run_backtest(None)
-            return
+            raise SystemExit("No setups found in setup/ folder")
         run_all_setups(setups)
 
 
@@ -112,7 +111,7 @@ def run_all_setups(setups: list[str]):
         proc.wait()
 
 
-def run_backtest(setup_name: str | None):
+def run_backtest(setup_name: str):
     app = BacktestApp(setup_name=setup_name)
     if app.logger is None:
         raise RuntimeError("BacktestApp logger is not initialized")
@@ -162,12 +161,12 @@ def run_backtest(setup_name: str | None):
             f"warmup={warmup_count} traded={total - warmup_count}"
         )
         if total == 0:
-            logger.warn("No candles returned for configured backtest window; strategy ack did not run")
+            logger.warning("No candles returned for configured backtest window; strategy ack did not run")
         logger.info(f"Backtest session_id={app.session_id}")
         logger.info(f"Final equity={app.simulate_adapter.get_equity():.4f}")
     finally:
-        if app.influx_client is not None:
-            app.influx_client.close()
+        if app.clickhouse_client is not None:
+            app.clickhouse_client.close()
 
 
 if __name__ == "__main__":

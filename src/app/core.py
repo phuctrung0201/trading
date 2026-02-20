@@ -1,29 +1,29 @@
 from src.app.config import AppConfig
 from src.app.logger import AppLogger, init_logger as build_logger
-from src.client.influxdb import InfluxDBClient
+from src.client.clickhouse import ClickHouseClient
 from src.client.okx import OkxClient
 
 
 class CoreApp:
-    def init_config(self, setup_name: str | None = None):
-        if setup_name:
-            return AppConfig.load_setup(setup_name)
-        return AppConfig.load_yaml()
+    def init_config(self, setup_name: str):
+        return AppConfig.load_setup(setup_name)
 
     def init_logger(self, log_level):
         return build_logger(log_level)
 
-    def init_influxdb_client(self, config):
+    def init_clickhouse_client(self, config):
         if self.logger is None:
-            raise RuntimeError("CoreApp logger must be initialized before InfluxDBClient")
-        influx = config.value.influx
-        return InfluxDBClient(
-            url=influx.url,
-            token=influx.token,
-            org=influx.org,
-            bucket=influx.bucket,
+            raise RuntimeError("CoreApp logger must be initialized before ClickHouseClient")
+        ch = config.values.clickhouse
+        client = ClickHouseClient(
+            url=ch.url,
+            database=ch.database,
+            user=ch.user,
+            password=ch.password,
             app_logger=self.logger,
         )
+        client.ensure_tables()
+        return client
 
     def init_okx_client(self, config):
         okx = config.value.okx
@@ -37,5 +37,5 @@ class CoreApp:
     def __init__(self):
         self.config: AppConfig | None = None
         self.logger: AppLogger | None = None
-        self.influx_client: InfluxDBClient | None = None
+        self.clickhouse_client: ClickHouseClient | None = None
         self.okx_client: OkxClient | None = None
