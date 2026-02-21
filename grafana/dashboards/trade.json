@@ -129,23 +129,6 @@
       }
     },
     {
-      "id": 6,
-      "title": "Win Rate %",
-      "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
-      "targets": [
-        {
-          "rawSql": "SELECT countIf(pnl > 0) * 100.0 / greatest(count(), 1) AS win_rate FROM trading.trade_event WHERE event = 'close' AND session_id IN ($session_id) AND setup IN ($setup)",
-          "refId": "A",
-          "format": 1
-        }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "percent", "decimals": 1, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 40 }, { "color": "green", "value": 55 }] } }
-      }
-    },
-    {
       "id": 10,
       "title": "Equity",
       "type": "timeseries",
@@ -206,7 +189,7 @@
           "format": 0
         },
         {
-          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, concat('close:', session_id) AS series, argMax(close_price, timestamp) AS value FROM trading.trade_event WHERE event IS NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, series ORDER BY t",
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, concat('price:', session_id) AS series, argMax(close_price, timestamp) AS value FROM trading.trade_event WHERE event IS NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, series ORDER BY t",
           "refId": "C",
           "format": 0
         }
@@ -215,7 +198,7 @@
         {
           "id": "renameByRegex",
           "options": {
-            "regex": ".+ ((short_ema|long_ema|close):.*)",
+            "regex": ".+ ((short_ema|long_ema|price):.*)",
             "renamePattern": "$1"
           }
         }
@@ -241,7 +224,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "custom": { "drawStyle": "bars", "fillOpacity": 80 },
+          "custom": { "drawStyle": "bars", "fillOpacity": 80, "gradientMode": "scheme" },
           "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0 }] },
           "color": { "mode": "thresholds" }
         }
@@ -269,47 +252,24 @@
       }
     },
     {
-      "id": 15,
-      "title": "Exposure Ratio",
-      "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 30 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
-      "interval": "1m",
-      "targets": [
-        {
-          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, session_id, argMax(exposure_ratio, timestamp) AS exposure FROM trading.trade_event WHERE event IS NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, session_id ORDER BY t",
-          "refId": "A",
-          "format": 0
-        }
-      ],
-      "transformations": [
-        { "id": "renameByRegex", "options": { "regex": "(.+) (.+)", "renamePattern": "$2" } }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "percentunit", "decimals": 2, "min": 0, "max": 1, "custom": { "fillOpacity": 15, "lineWidth": 1 } }
-      }
-    },
-    {
       "id": 16,
-      "title": "PnL per Trade",
-      "type": "barchart",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 30 },
+      "title": "PnL",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
-          "rawSql": "SELECT ROW_NUMBER() OVER (ORDER BY timestamp) AS trade_num, pnl FROM trading.trade_event WHERE event = 'close' AND pnl IS NOT NULL AND session_id IN ($session_id) AND setup IN ($setup) ORDER BY timestamp",
+          "rawSql": "SELECT sum(pnl) AS total_pnl FROM trading.trade_event WHERE event = 'close' AND pnl IS NOT NULL AND session_id IN ($session_id) AND setup IN ($setup)",
           "refId": "A",
           "format": 1
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "currencyUSD", "decimals": 2, "custom": { "fillOpacity": 80 } },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "pnl" },
-            "properties": [{ "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0 }] } }, { "id": "color", "value": { "mode": "thresholds" } }]
-          }
-        ]
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0 }, { "color": "green", "value": 1 }] }
+        }
       }
     },
     {

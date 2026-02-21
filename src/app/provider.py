@@ -54,6 +54,7 @@ class AppProvider:
             instrument=setup.instrument,
             leverage=setup.leverage,
         )
+        self.exchange = self.okx_exchange if mode == "paper" else self.simulator
 
         self.recorder = ClickHouseRecorder(
             clickhouse_client=self.clickhouse_client,
@@ -61,4 +62,16 @@ class AppProvider:
             setup_name=setup_name,
             instrument=setup.instrument,
             strategy=setup.strategy,
+        )
+
+        from src.drawdown.strategy import DrawdownStrategy
+
+        self.strategy = DrawdownStrategy(
+            exchange=self.exchange,
+            recorder=self.recorder,
+            logger=self.logger,
+            short_length=setup.crossma.short_length,
+            long_length=setup.crossma.long_length,
+            window=setup.drawdown.window,
+            threshold_scale_map=setup.drawdown.threshold_scale_map,
         )

@@ -18,7 +18,6 @@ def main():
 
     try:
         logger.info(f"Paper session_id {app.session_id}")
-        app.preload()
 
         total = 0
         try:

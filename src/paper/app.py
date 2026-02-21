@@ -2,45 +2,19 @@ from datetime import datetime, timezone
 
 from src.app.provider import AppProvider
 from src.clickhouse.measurement import OpsMeasurement
-from src.drawdown.strategy import DrawdownStrategy
 
 
 class PaperApp:
     def __init__(self, provider: AppProvider):
         self.logger = provider.logger
-        self.exchange = provider.okx_exchange
+        self.exchange = provider.exchange
+        self.strategy = provider.strategy
         self.recorder = provider.recorder
         self.clickhouse_client = provider.clickhouse_client
         self.session_id = provider.session_id
 
-        setup = provider.setup
-        self.instrument = setup.instrument
-        self.depth_sec = setup.depth.total_seconds
-
-        self.strategy = DrawdownStrategy(
-            exchange=self.exchange,
-            recorder=self.recorder,
-            logger=self.logger,
-            short_length=setup.crossma.short_length,
-            long_length=setup.crossma.long_length,
-            window=setup.drawdown.window,
-            threshold_scale_map=setup.drawdown.threshold_scale_map,
-        )
-
         provider.okx_client.set_api_callback(self._on_api_call)
-        self.logger.info(f"PaperApp ready instrument={self.instrument}")
-
-    def preload(self):
-        if self.depth_sec <= 0:
-            self.logger.info("Preload skipped depth_sec=0")
-            return
-
-        self.logger.info(f"Preloading trades depth_sec={self.depth_sec}s")
-        total = 0
-        for trade in self.exchange.stream_history(depth_sec=self.depth_sec):
-            total += 1
-            self.strategy.ack(trade)
-        self.logger.info(f"Preload completed total={total}")
+        self.logger.info(f"PaperApp ready instrument={provider.setup.instrument}")
 
     def _on_api_call(self, latency_ms: int, response_code: int, source: str):
         ops = OpsMeasurement(

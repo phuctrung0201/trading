@@ -47,6 +47,7 @@ class BaseStrategy:
         self._prev_equity: float = initial_equity
         self._last_reconcile_time: float = time.monotonic()
         self._last_close_price: float = 0.0
+        self._warmed_up: bool = False
 
     def _mark_to_market(self):
         equity = self.exchange.get_equity()
@@ -185,7 +186,14 @@ class BaseStrategy:
     def _signal(self, close: float) -> SignalResult:
         self._values.append(close)
         if len(self._values) < self.long:
+            self._logger.info(
+                f"Warmup {len(self._values)}/{self.long}"
+            )
             return SignalResult()
+
+        if not self._warmed_up:
+            self._warmed_up = True
+            self._logger.info(f"Warmup complete collected={len(self._values)}")
 
         short_values = self._values[-self.short:]
         long_values = self._values[-self.long:]
