@@ -1,17 +1,23 @@
 import uuid
 
-from src.app.config import load_config
+from src.app.config import (
+    load_config,
+    LoggerConfig,
+    OkxConfig,
+    ClickHouseConfig,
+    SetupConfig,
+)
 from src.app.logger import init_logger
 
 
 class AppProvider:
     def __init__(self, mode: str, setup_name: str):
-        app_cfg = load_config("app", "logger")
-        okx_cfg = load_config("okx", "client")
-        ch_cfg = load_config("clickhouse", "client")
-        setup = load_config(mode, setup_name)
+        app_cfg = load_config("app", "logger", LoggerConfig)
+        okx_cfg = load_config("okx", "client", OkxConfig)
+        ch_cfg = load_config("clickhouse", "client", ClickHouseConfig)
+        setup = load_config(mode, setup_name, SetupConfig)
 
-        self.logger = init_logger(app_cfg["log_level"])
+        self.logger = init_logger(app_cfg.log_level)
         self.session_id = uuid.uuid4().hex
         self.setup = setup
 
@@ -21,15 +27,20 @@ class AppProvider:
         from src.exchange.simulator import SimulateExchange
         from src.okx.exchange import OkxExchange
 
-        self.okx_client = OkxClient(**okx_cfg)
+        self.okx_client = OkxClient(
+            api_key=okx_cfg.api_key,
+            secret_key=okx_cfg.secret_key,
+            passphrase=okx_cfg.passphrase,
+            demo=okx_cfg.demo,
+        )
         self.clickhouse_client = None
-        if ch_cfg.get("enabled"):
+        if ch_cfg.enabled:
             try:
                 client = ClickHouseClient(
-                    url=ch_cfg["url"],
-                    database=ch_cfg["database"],
-                    user=ch_cfg["user"],
-                    password=ch_cfg["password"],
+                    url=ch_cfg.url,
+                    database=ch_cfg.database,
+                    user=ch_cfg.user,
+                    password=ch_cfg.password,
                     app_logger=self.logger,
                 )
                 client.ensure_tables()
@@ -40,14 +51,14 @@ class AppProvider:
         self.simulator = SimulateExchange()
         self.okx_exchange = OkxExchange(
             okx_client=self.okx_client,
-            instrument=setup["exchange"]["instrument"],
-            leverage=setup["exchange"].get("leverage", 1),
+            instrument=setup.instrument,
+            leverage=setup.leverage,
         )
 
         self.recorder = ClickHouseRecorder(
             clickhouse_client=self.clickhouse_client,
             session_id=self.session_id,
             setup_name=setup_name,
-            instrument=setup["exchange"]["instrument"],
-            strategy=setup.get("strategy", "drawdown"),
+            instrument=setup.instrument,
+            strategy=setup.strategy,
         )

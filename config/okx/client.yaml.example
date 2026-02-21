@@ -1,0 +1,4 @@
+api_key: "your-okx-api-key"
+secret_key: "your-okx-secret-key"
+passphrase: "your-okx-passphrase"
+demo: true

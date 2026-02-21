@@ -1,12 +1,31 @@
+import threading
 import time
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 
 from requests import HTTPError
 
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade, Position, OpenResult
 from src.exchange.position import PositionTracker
-from src.okx.auth import OkxAuth, _BASE_URL, _to_epoch_ms
+from src.okx.auth import OkxAuth, _BASE_URL
+
+
+class _RateLimiter:
+    """Thread-safe token-bucket rate limiter."""
+
+    def __init__(self, rps: float):
+        self._min_interval = 1.0 / rps
+        self._lock = threading.Lock()
+        self._last = 0.0
+
+    def wait(self):
+        with self._lock:
+            now = time.monotonic()
+            delay = self._min_interval - (now - self._last)
+            if delay > 0:
+                time.sleep(delay)
+            self._last = time.monotonic()
 
 
 class OkxExchange(ExchangeAdapter):
@@ -29,13 +48,15 @@ class OkxExchange(ExchangeAdapter):
 
     # -- market data --------------------------------------------------------
 
-    def _request_candles(self, endpoint: str, bar: str = "1m",
-                         limit: int = 100, after=None, before=None) -> list:
-        params = {"instId": self._instrument, "bar": bar, "limit": str(limit)}
+    def _request_trades(self, endpoint: str, limit: int = 100,
+                        after=None, before=None, type_param=None) -> list:
+        params = {"instId": self._instrument, "limit": str(limit)}
         if after is not None:
             params["after"] = str(after)
         if before is not None:
             params["before"] = str(before)
+        if type_param is not None:
+            params["type"] = str(type_param)
 
         attempts = 0
         while True:
@@ -47,7 +68,7 @@ class OkxExchange(ExchangeAdapter):
                 body = resp.json()
                 if str(body.get("code", "")) != "0":
                     raise RuntimeError(
-                        f"OKX candles request failed: {body.get('code')} {body.get('msg')}"
+                        f"OKX trades request failed: {body.get('code')} {body.get('msg')}"
                     )
                 return body.get("data", [])
 
@@ -64,18 +85,26 @@ class OkxExchange(ExchangeAdapter):
                 delay = min(30.0, 1.5 * (2 ** (attempts - 1)))
             time.sleep(delay)
 
-    def _candles(self, bar: str = "1m", limit: int = 100,
-                 after=None, before=None) -> list:
-        return self._request_candles(
-            endpoint="/api/v5/market/candles",
-            bar=bar, limit=limit, after=after, before=before,
+    def _recent_trades(self, limit: int = 100) -> list:
+        return self._request_trades(
+            endpoint="/api/v5/market/trades", limit=limit,
         )
 
-    def _history_candles(self, bar: str = "1m", limit: int = 100,
-                         after=None, before=None) -> list:
-        return self._request_candles(
-            endpoint="/api/v5/market/history-candles",
-            bar=bar, limit=limit, after=after, before=before,
+    def _history_trades(self, limit: int = 100,
+                        after=None, before=None, type_param=None) -> list:
+        return self._request_trades(
+            endpoint="/api/v5/market/history-trades",
+            limit=limit, after=after, before=before, type_param=type_param,
+        )
+
+    @staticmethod
+    def _normalize_trade(raw: dict) -> MarketTrade:
+        return MarketTrade(
+            trade_id=raw["tradeId"],
+            timestamp=raw["ts"],
+            price=float(raw["px"]),
+            size=float(raw["sz"]),
+            side=raw["side"],
         )
 
     def _get_mark_price(self, inst_type: str = "SWAP") -> float:
@@ -96,62 +125,80 @@ class OkxExchange(ExchangeAdapter):
             raise RuntimeError(f"Instrument not found: {self._instrument}")
         return data[0]
 
-    @staticmethod
-    def _normalize_candle(candle: list) -> MarketTrade:
-        ts = int(candle[0])
-        return MarketTrade(
-            timestamp=datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-            open=float(candle[1]),
-            high=float(candle[2]),
-            low=float(candle[3]),
-            close=float(candle[4]),
-            volume=float(candle[5]),
-        )
+    _HISTORY_WORKERS = 4
+    _HISTORY_MAX_RPS = 8
 
-    def stream_history(self, start, end, step: str):
-        start_ms = _to_epoch_ms(start)
-        end_ms = _to_epoch_ms(end)
-        if end_ms < start_ms:
-            raise ValueError("backtest.end must be greater than backtest.start")
-
-        all_candles = []
-        cursor = str(end_ms)
+    def _fetch_range(self, range_start_ms: int, range_end_ms: int,
+                     limiter: "_RateLimiter") -> list[dict]:
+        """Fetch all history trades within a time range, paging backwards."""
+        trades: list[dict] = []
+        cursor = str(range_end_ms)
         while True:
-            raw = self._history_candles(
-                bar=step, limit=100,
-                before=str(start_ms - 1), after=cursor,
-            )
+            limiter.wait()
+            raw = self._history_trades(limit=100, after=cursor, type_param=2)
             if not raw:
                 break
-            all_candles.extend(raw)
-            oldest_ts = int(raw[-1][0])
-            if oldest_ts <= start_ms or len(raw) < 100:
+            trades.extend(raw)
+            oldest_ts = int(raw[-1]["ts"])
+            if oldest_ts <= range_start_ms or len(raw) < 100:
                 break
             if str(oldest_ts) == cursor:
                 break
             cursor = str(oldest_ts)
-            time.sleep(0.2)
+        return trades
 
-        all_candles.sort(key=lambda c: int(c[0]))
-        for c in all_candles:
-            ts = int(c[0])
-            confirmed = len(c) > 8 and str(c[8]) == "1"
-            if start_ms <= ts <= end_ms and confirmed:
-                yield self._normalize_candle(c)
+    def stream_history(self, depth_ts: int):
+        start_ms = int(
+            (datetime.now(timezone.utc) - timedelta(minutes=depth_ts)).timestamp() * 1000
+        )
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
-    def stream_prices(self, step: str):
-        last_ts = None
+        total_ms = now_ms - start_ms
+        n = min(self._HISTORY_WORKERS, max(1, total_ms // 60_000))
+        chunk_ms = total_ms // n
+
+        ranges = []
+        for i in range(n):
+            r_start = start_ms + i * chunk_ms
+            r_end = now_ms if i == n - 1 else start_ms + (i + 1) * chunk_ms
+            ranges.append((r_start, r_end))
+
+        limiter = _RateLimiter(self._HISTORY_MAX_RPS)
+        all_trades: list[dict] = []
+
+        with ThreadPoolExecutor(max_workers=n) as pool:
+            futures = {
+                pool.submit(self._fetch_range, r_start, r_end, limiter): i
+                for i, (r_start, r_end) in enumerate(ranges)
+            }
+            for future in as_completed(futures):
+                all_trades.extend(future.result())
+
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for t in all_trades:
+            tid = t["tradeId"]
+            if tid not in seen:
+                seen.add(tid)
+                unique.append(t)
+
+        unique.sort(key=lambda t: int(t["ts"]))
+        for t in unique:
+            if int(t["ts"]) >= start_ms:
+                yield self._normalize_trade(t)
+
+    def stream_prices(self):
+        last_trade_id: str | None = None
         while True:
-            raw = self._candles(bar=step, limit=2)
-            for candle in raw:
-                ts = int(candle[0])
-                confirmed = len(candle) > 8 and str(candle[8]) == "1"
-                if confirmed and ts != last_ts:
-                    last_ts = ts
-                    yield self._normalize_candle(candle)
-            time.sleep(1.0)
+            raw = self._recent_trades(limit=100)
+            raw.sort(key=lambda t: int(t["ts"]))
+            for t in raw:
+                tid = t["tradeId"]
+                if last_trade_id is not None and int(tid) <= int(last_trade_id):
+                    continue
+                last_trade_id = tid
+                yield self._normalize_trade(t)
+            time.sleep(0.2)
 
     # -- contract helpers ---------------------------------------------------
 

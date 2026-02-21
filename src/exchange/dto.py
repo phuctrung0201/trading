@@ -3,12 +3,11 @@ from dataclasses import dataclass
 
 @dataclass
 class MarketTrade:
+    trade_id: str
     timestamp: str
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
+    price: float
+    size: float
+    side: str
 
 
 @dataclass

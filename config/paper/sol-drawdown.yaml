@@ -1,8 +1,9 @@
-exchange:
-  instrument: SOL-USDT-SWAP
-  steps: 5m
-  leverage: 1
-  preload: 1d
+instrument: SOL-USDT-SWAP
+leverage: 1
+
+depth:
+  hour: 0
+  minute: 30
 
 crossma:
   short_length: 400

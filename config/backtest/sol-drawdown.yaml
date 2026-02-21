@@ -1,12 +1,12 @@
-exchange:
-  instrument: SOL-USDT-SWAP
-  steps: 5m
-  start: "2026-01-01T00:00:00Z"
-  end: "2026-01-01T01:00:00Z"
+instrument: SOL-USDT-SWAP
+
+depth:
+  hour: 5
+  minute: 30
 
 crossma:
-  short_length: 400
-  long_length: 500
+  short_length: 50
+  long_length: 100
 
 drawdown:
   window: 1440

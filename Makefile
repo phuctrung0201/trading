@@ -29,7 +29,7 @@ backtest-one:
 	python -m src.backtest.main --setup $(SETUP)
 
 monitor:
-	-docker rm -f influxdb grafana 2>/dev/null
+	-docker rm -f clickhouse grafana 2>/dev/null
 	docker-compose up -d
 
 monitor-down:

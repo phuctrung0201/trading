@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from src.app.provider import AppProvider
 from src.clickhouse.measurement import OpsMeasurement
@@ -14,56 +14,33 @@ class PaperApp:
         self.session_id = provider.session_id
 
         setup = provider.setup
-        exchange_cfg = setup["exchange"]
-        self.instrument = exchange_cfg["instrument"]
-        self.step = exchange_cfg.get("steps", "1m")
-        self.preload_duration = exchange_cfg.get("preload", "1d")
+        self.instrument = setup.instrument
+        self.depth_ts = setup.depth.total_minutes
 
-        crossma_cfg = setup.get("crossma", {})
-        drawdown_cfg = setup.get("drawdown", {})
         self.strategy = DrawdownStrategy(
             exchange=self.exchange,
             recorder=self.recorder,
             logger=self.logger,
-            short_length=int(crossma_cfg.get("short_length", 15)),
-            long_length=int(crossma_cfg.get("long_length", 200)),
-            steps=self.step,
-            window=int(drawdown_cfg.get("window", 500)),
-            threshold_scale_map=drawdown_cfg.get("threshold_scale_map", {0.0: 1.0}),
+            short_length=setup.crossma.short_length,
+            long_length=setup.crossma.long_length,
+            window=setup.drawdown.window,
+            threshold_scale_map=setup.drawdown.threshold_scale_map,
         )
 
         provider.okx_client.set_api_callback(self._on_api_call)
-        self.logger.info(
-            f"PaperApp ready instrument={self.instrument} step={self.step}"
-        )
-
-    def _parse_duration(self, duration_str: str) -> timedelta:
-        unit = duration_str[-1]
-        count = int(duration_str[:-1]) if len(duration_str) > 1 else 1
-        if unit == "m":
-            return timedelta(minutes=count)
-        if unit == "h":
-            return timedelta(hours=count)
-        if unit == "d":
-            return timedelta(days=count)
-        if unit == "w":
-            return timedelta(weeks=count)
-        return timedelta(days=1)
+        self.logger.info(f"PaperApp ready instrument={self.instrument}")
 
     def preload(self):
-        duration = self._parse_duration(self.preload_duration)
-        now = datetime.now(timezone.utc)
-        start = (now - duration).strftime("%Y-%m-%dT%H:%M:%SZ")
-        end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        self.logger.info(f"Preloading candles start={start} end={end} step={self.step}")
+        if self.depth_ts <= 0:
+            self.logger.info("Preload skipped depth_ts=0")
+            return
 
+        self.logger.info(f"Preloading trades depth_ts={self.depth_ts}m")
         total = 0
-        for trade in self.exchange.stream_history(start=start, end=end, step=self.step):
+        for trade in self.exchange.stream_history(depth_ts=self.depth_ts):
             total += 1
-            if trade.close is not None:
-                self.exchange.set_price(float(trade.close))
-            self.strategy.warmup(trade)
-        self.logger.info(f"Preload warm-up completed total={total}")
+            self.strategy.ack(trade)
+        self.logger.info(f"Preload completed total={total}")
 
     def _on_api_call(self, latency_ms: int, response_code: int, source: str):
         ops = OpsMeasurement(

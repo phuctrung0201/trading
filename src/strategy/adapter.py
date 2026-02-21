@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from src.app.config import periods_per_year
 from src.app.logger import AppLogger
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade, Position
@@ -31,7 +30,6 @@ class BaseStrategy:
         logger: AppLogger,
         short_length: int,
         long_length: int,
-        steps: str = "1m",
         **kwargs,
     ):
         self.exchange = exchange
@@ -47,7 +45,6 @@ class BaseStrategy:
         self._peak_equity: float = initial_equity
         self._returns: list[float] = []
         self._prev_equity: float = initial_equity
-        self._periods_per_year: int = periods_per_year(steps)
         self._last_reconcile_time: float = time.monotonic()
         self._last_close_price: float = 0.0
 
@@ -175,27 +172,18 @@ class BaseStrategy:
         return (self.exchange.get_equity() - self._peak_equity) / self._peak_equity
 
     def _calculate_sharpe_ratio(self, risk_free_rate: float = 0.0) -> float:
-        if len(self._returns) < 2:
+        n = len(self._returns)
+        if n < 2:
             return 0.0
-        mean_return = sum(self._returns) / len(self._returns)
-        variance = sum((r - mean_return) ** 2 for r in self._returns) / len(self._returns)
+        mean_return = sum(self._returns) / n
+        variance = sum((r - mean_return) ** 2 for r in self._returns) / n
         std_dev = variance ** 0.5
         if std_dev == 0:
             return 0.0
-        sharpe = (mean_return - risk_free_rate) / std_dev
-        return sharpe * (self._periods_per_year ** 0.5)
+        return (mean_return - risk_free_rate) / std_dev * (n ** 0.5)
 
-    def warmup(self, trade: MarketTrade):
-        close_value = getattr(trade, "close", None)
-        if close_value is not None:
-            self._values.append(float(close_value))
-
-    def _signal(self, trade: MarketTrade) -> SignalResult:
-        close_value = getattr(trade, "close", None)
-        if close_value is None:
-            return SignalResult()
-
-        self._values.append(float(close_value))
+    def _signal(self, close: float) -> SignalResult:
+        self._values.append(close)
         if len(self._values) < self.long:
             return SignalResult()
 
@@ -234,7 +222,7 @@ class BaseStrategy:
             timestamp=self._measurement_timestamp(trade),
             event=event,
             equity=self.exchange.get_equity(),
-            close_price=float(getattr(trade, "close", 0) or 0),
+            close_price=self._last_close_price,
             position_size=position_size,
             position_side=position_side,
             drawdown=self._calculate_drawdown(),
@@ -250,13 +238,17 @@ class BaseStrategy:
         self.recorder.record(event_measurement)
 
     def _measurement_timestamp(self, trade: MarketTrade) -> int | None:
-        raw = getattr(trade, "timestamp", None)
+        raw = trade.timestamp
         if raw is None:
             return None
         if isinstance(raw, (int, float)):
-            return int(raw)
+            return int(raw) * 1_000_000
         if isinstance(raw, str):
             text = raw.strip()
+            try:
+                return int(text) * 1_000_000
+            except ValueError:
+                pass
             if text.endswith("Z"):
                 text = text.replace("Z", "+00:00")
             try:
@@ -270,8 +262,7 @@ class BaseStrategy:
 
     def _emit_trade_measurement(self, trade: MarketTrade, result: SignalResult,
                                 drawdown: float | None = None):
-        close_price = float(getattr(trade, "close", 0) or 0)
-        self._last_close_price = close_price
+        self._last_close_price = trade.price
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
         )
@@ -288,7 +279,7 @@ class BaseStrategy:
             sharpe_ratio=self._calculate_sharpe_ratio(),
             short_ema=result.short_ema,
             long_ema=result.long_ema,
-            close_price=close_price,
+            close_price=self._last_close_price,
             exposure_ratio=self._exposure_ratio,
         )
         self.recorder.record(measurement)

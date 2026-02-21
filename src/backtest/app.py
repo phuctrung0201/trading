@@ -10,28 +10,20 @@ class BacktestApp:
         self.session_id = provider.session_id
 
         setup = provider.setup
-        exchange_cfg = setup["exchange"]
-        self.instrument = exchange_cfg["instrument"]
-        self.step = exchange_cfg.get("steps", "1m")
-        self.backtest_start = exchange_cfg["start"]
-        self.backtest_end = exchange_cfg["end"]
+        self.instrument = setup.instrument
+        self.depth_ts = setup.depth.total_minutes
 
-        crossma_cfg = setup.get("crossma", {})
-        self.warmup_periods = int(crossma_cfg.get("long_length", 200))
-
-        drawdown_cfg = setup.get("drawdown", {})
         self.strategy = DrawdownStrategy(
             exchange=self.exchange,
             recorder=self.recorder,
             logger=self.logger,
-            short_length=int(crossma_cfg.get("short_length", 15)),
-            long_length=int(crossma_cfg.get("long_length", 200)),
-            steps=self.step,
-            window=int(drawdown_cfg.get("window", 500)),
-            threshold_scale_map=drawdown_cfg.get("threshold_scale_map", {0.0: 1.0}),
+            short_length=setup.crossma.short_length,
+            long_length=setup.crossma.long_length,
+            window=setup.drawdown.window,
+            threshold_scale_map=setup.drawdown.threshold_scale_map,
         )
 
         self.logger.info(
-            f"BacktestApp ready instrument={self.instrument} step={self.step} "
-            f"start={self.backtest_start} end={self.backtest_end}"
+            f"BacktestApp ready instrument={self.instrument} "
+            f"depth_ts={self.depth_ts}m"
         )

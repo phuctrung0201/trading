@@ -1,9 +1,8 @@
 import argparse
-import os
 
 from src.app.provider import AppProvider
 from src.backtest.app import BacktestApp
-from src.backtest.data import data_path, download_history, load_candles
+from src.backtest.data import data_path, download_history, load_trades
 
 
 def parse_args():
@@ -18,44 +17,30 @@ def main():
     app = BacktestApp(provider)
     logger = app.logger
 
-    path = data_path(app.instrument, app.step, app.backtest_start, app.backtest_end)
+    path = data_path(app.instrument, app.depth_ts)
 
-    if not os.path.exists(path):
-        download_history(
-            exchange=provider.okx_exchange,
-            start=app.backtest_start,
-            end=app.backtest_end,
-            step=app.step,
-            path=path,
-            logger=logger,
-        )
-    else:
-        logger.info(f"Using cached history file {path}")
+    download_history(
+        exchange=provider.okx_exchange,
+        depth_ts=app.depth_ts,
+        path=path,
+        logger=logger,
+    )
 
     try:
-        warmup_count = 0
         total = 0
-        for trade in load_candles(path):
+        for trade in load_trades(path):
             total += 1
             try:
-                if trade.close is not None:
-                    app.exchange.set_price(float(trade.close))
-                if warmup_count < app.warmup_periods:
-                    app.strategy.warmup(trade)
-                    warmup_count += 1
-                else:
-                    app.strategy.ack(trade)
+                app.exchange.set_price(trade.price)
+                app.strategy.ack(trade)
             except Exception:
                 logger.error(
-                    f"Strategy ack failed timestamp={trade.timestamp} close={trade.close}"
+                    f"Strategy ack failed timestamp={trade.timestamp} price={trade.price}"
                 )
                 raise
-        logger.info(
-            f"Backtest completed total_candles={total} "
-            f"warmup={warmup_count} traded={total - warmup_count}"
-        )
+        logger.info(f"Backtest completed total_trades={total}")
         if total == 0:
-            logger.warning("No candles returned; strategy ack did not run")
+            logger.warning("No trades returned; strategy ack did not run")
         logger.info(f"Backtest session_id {app.session_id}")
         logger.info(f"Final equity={app.exchange.get_equity():.4f}")
     finally:

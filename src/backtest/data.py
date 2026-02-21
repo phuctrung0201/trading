@@ -5,45 +5,42 @@ from src.exchange.dto import MarketTrade
 
 
 DATA_DIR = "data"
-CANDLE_FIELDS = ["timestamp", "open", "high", "low", "close", "volume"]
+TRADE_FIELDS = ["trade_id", "timestamp", "price", "size", "side"]
 
 
-def data_path(instrument: str, step: str, start: str, end: str) -> str:
+def data_path(instrument: str, depth_ts: int) -> str:
     safe = lambda s: str(s).replace("/", "_").replace(":", "-").replace(" ", "_")
-    filename = f"{safe(instrument)}_{step}_{safe(start)}_{safe(end)}.csv"
+    filename = f"{safe(instrument)}_depth_{depth_ts}m.csv"
     return os.path.join(DATA_DIR, filename)
 
 
-def download_history(exchange, start: str, end: str, step: str,
-                     path: str, logger):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    logger.info(f"Downloading history to {path}")
+def download_history(exchange, depth_ts: int, path: str, logger):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    logger.info(f"Downloading trade history depth_ts={depth_ts}m to {path}")
     count = 0
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=CANDLE_FIELDS)
+        writer = csv.DictWriter(fh, fieldnames=TRADE_FIELDS)
         writer.writeheader()
-        for trade in exchange.stream_history(start=start, end=end, step=step):
+        for trade in exchange.stream_history(depth_ts=depth_ts):
             writer.writerow({
+                "trade_id": trade.trade_id,
                 "timestamp": trade.timestamp,
-                "open": trade.open,
-                "high": trade.high,
-                "low": trade.low,
-                "close": trade.close,
-                "volume": trade.volume,
+                "price": trade.price,
+                "size": trade.size,
+                "side": trade.side,
             })
             count += 1
-    logger.info(f"Downloaded {count} candles to {path}")
+    logger.info(f"Downloaded {count} trades to {path}")
 
 
-def load_candles(path: str):
+def load_trades(path: str):
     with open(path, "r", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
             yield MarketTrade(
+                trade_id=row["trade_id"],
                 timestamp=row["timestamp"],
-                open=float(row["open"]),
-                high=float(row["high"]),
-                low=float(row["low"]),
-                close=float(row["close"]),
-                volume=float(row["volume"]),
+                price=float(row["price"]),
+                size=float(row["size"]),
+                side=row["side"],
             )

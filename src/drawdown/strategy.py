@@ -2,7 +2,7 @@ from src.app.logger import AppLogger
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade, Position
 from src.clickhouse.recorder import Recorder
-from src.crossma.base import BaseStrategy
+from src.strategy.adapter import BaseStrategy
 
 
 class DrawdownStrategy(BaseStrategy):
@@ -57,17 +57,19 @@ class DrawdownStrategy(BaseStrategy):
         return scale
 
     def ack(self, trade: MarketTrade):
-        self.reconcile()
+        self.exchange.set_price(trade.price)
         self._mark_to_market()
+        self.reconcile()
+
         drawdown = self.calculate_drawdown()
         scale = self.scale_position(drawdown)
-        result = self._signal(trade)
+        result = self._signal(trade.price)
 
         equity = self.exchange.get_equity()
         self._logger.info(
-            f"DrawdownStrategy candle "
+            f"DrawdownStrategy bucket "
             f"timestamp={trade.timestamp} "
-            f"close={trade.close} "
+            f"price={trade.price} "
             f"short_ema={result.short_ema} long_ema={result.long_ema} "
             f"equity={equity:.4f} drawdown={drawdown:.4f} scale={scale:.4f}"
         )
