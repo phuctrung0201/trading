@@ -2,7 +2,7 @@ instrument: SOL-USDT-SWAP
 leverage: 1
 
 crossma:
-  short_length: 100
+  short_length: 10000
   long_length: 50000
 
 drawdown:

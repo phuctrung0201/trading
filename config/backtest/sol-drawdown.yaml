@@ -5,8 +5,8 @@ depth:
   minute: 30
 
 crossma:
-  short_length: 2000
-  long_length: 5000
+  short_length: 10000
+  long_length: 50000
 
 drawdown:
   window: 100000
