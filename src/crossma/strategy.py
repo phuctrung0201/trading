@@ -2,10 +2,10 @@ from src.app.logger import AppLogger
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade
 from src.clickhouse.recorder import Recorder
-from src.strategy.adapter import BaseStrategy
+from src.strategy.adapter import StrategyAdapter
 
 
-class CrossMAStrategy(BaseStrategy):
+class CrossMAStrategy(StrategyAdapter):
     def __init__(
         self,
         exchange: ExchangeAdapter,
@@ -36,7 +36,7 @@ class CrossMAStrategy(BaseStrategy):
         self._mark_to_market()
         self.reconcile()
 
-        result = self._signal(trade.price)
+        result = self._signal(trade.price, trade.size)
 
         equity = self.exchange.get_equity()
         self._logger.info(

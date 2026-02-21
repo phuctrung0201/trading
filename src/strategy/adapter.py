@@ -9,7 +9,7 @@ from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade, Position
 from src.clickhouse.recorder import Recorder
 from src.clickhouse.measurement import TradeMeasurement, TradeEventMeasurement, OpsMeasurement
-from src.ema.indicator import EMA
+from src.vwema.indicator import VWEMA
 
 
 @dataclass
@@ -22,7 +22,7 @@ class SignalResult:
 _RECONCILE_INTERVAL_SEC = 300
 
 
-class BaseStrategy:
+class StrategyAdapter:
     def __init__(
         self,
         exchange: ExchangeAdapter,
@@ -37,8 +37,9 @@ class BaseStrategy:
         self._logger = logger
         self.short = int(short_length)
         self.long = int(long_length)
-        self._ema = EMA()
-        self._values: list[float] = []
+        self._short_ema = VWEMA(period=self.short)
+        self._long_ema = VWEMA(period=self.long)
+        self._tick_count: int = 0
         self._current_position: Position | None = None
         self._exposure_ratio: float = 1.0
         initial_equity = self.exchange.get_equity()
@@ -183,22 +184,23 @@ class BaseStrategy:
             return 0.0
         return (mean_return - risk_free_rate) / std_dev * (n ** 0.5)
 
-    def _signal(self, close: float) -> SignalResult:
-        self._values.append(close)
-        if len(self._values) < self.long:
+    def _signal(self, close: float, volume: float = 1.0) -> SignalResult:
+        self._tick_count += 1
+        self._short_ema.update(close, volume)
+        self._long_ema.update(close, volume)
+
+        if self._tick_count < self.long:
             self._logger.info(
-                f"Warmup {len(self._values)}/{self.long}"
+                f"Warmup {self._tick_count}/{self.long}"
             )
             return SignalResult()
 
         if not self._warmed_up:
             self._warmed_up = True
-            self._logger.info(f"Warmup complete collected={len(self._values)}")
+            self._logger.info(f"Warmup complete collected={self._tick_count}")
 
-        short_values = self._values[-self.short:]
-        long_values = self._values[-self.long:]
-        short_ema = self._ema.calculate(short_values)
-        long_ema = self._ema.calculate(long_values)
+        short_ema = self._short_ema.value
+        long_ema = self._long_ema.value
 
         if short_ema is None or long_ema is None:
             return SignalResult()

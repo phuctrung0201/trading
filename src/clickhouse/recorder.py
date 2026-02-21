@@ -11,12 +11,14 @@ class Recorder(ABC):
 
 class ClickHouseRecorder(Recorder):
     def __init__(self, clickhouse_client, session_id: str,
-                 setup_name: str, instrument: str, strategy: str):
+                 setup_name: str, instrument: str, strategy: str,
+                 indicator: str = "vwema"):
         self.clickhouse_client = clickhouse_client
         self.session_id = session_id
         self.setup_name = setup_name
         self.instrument = instrument
         self.strategy = strategy
+        self.indicator = indicator
 
     def _table_for(self, measurable) -> str:
         if isinstance(measurable, OpsMeasurement):
@@ -32,6 +34,7 @@ class ClickHouseRecorder(Recorder):
             "setup": self.setup_name,
             "instrument": self.instrument,
             "strategy": self.strategy,
+            "indicator": self.indicator,
             **fields,
         }
         table = self._table_for(measurable)

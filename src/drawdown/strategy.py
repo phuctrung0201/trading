@@ -2,10 +2,10 @@ from src.app.logger import AppLogger
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade, Position
 from src.clickhouse.recorder import Recorder
-from src.strategy.adapter import BaseStrategy
+from src.strategy.adapter import StrategyAdapter
 
 
-class DrawdownStrategy(BaseStrategy):
+class DrawdownStrategy(StrategyAdapter):
     def __init__(
         self,
         exchange: ExchangeAdapter,

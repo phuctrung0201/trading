@@ -172,19 +172,19 @@
     },
     {
       "id": 12,
-      "title": "EMA Indicators",
+      "title": "MA Indicators",
       "type": "timeseries",
       "gridPos": { "h": 6, "w": 24, "x": 0, "y": 18 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, concat('short_ema:', session_id) AS series, argMax(short_ema, timestamp) AS value FROM trading.trade_event WHERE event IS NULL AND short_ema IS NOT NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, series ORDER BY t",
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, concat(ifNull(indicator, 'ema'), ':short:', session_id) AS series, argMax(short_ema, timestamp) AS value FROM trading.trade_event WHERE event IS NULL AND short_ema IS NOT NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, series ORDER BY t",
           "refId": "A",
           "format": 0
         },
         {
-          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, concat('long_ema:', session_id) AS series, argMax(long_ema, timestamp) AS value FROM trading.trade_event WHERE event IS NULL AND long_ema IS NOT NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, series ORDER BY t",
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, concat(ifNull(indicator, 'ema'), ':long:', session_id) AS series, argMax(long_ema, timestamp) AS value FROM trading.trade_event WHERE event IS NULL AND long_ema IS NOT NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, series ORDER BY t",
           "refId": "B",
           "format": 0
         },
@@ -198,7 +198,7 @@
         {
           "id": "renameByRegex",
           "options": {
-            "regex": ".+ ((short_ema|long_ema|price):.*)",
+            "regex": ".+ (.+)",
             "renamePattern": "$1"
           }
         }

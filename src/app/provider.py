@@ -62,6 +62,7 @@ class AppProvider:
             setup_name=setup_name,
             instrument=setup.instrument,
             strategy=setup.strategy,
+            indicator="vwema",
         )
 
         from src.drawdown.strategy import DrawdownStrategy
