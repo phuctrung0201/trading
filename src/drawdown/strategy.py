@@ -1,6 +1,6 @@
 from src.app.logger import AppLogger
-from src.exchange.adapter import Exchange
-from src.exchange.types import MarketTrade, Position
+from src.exchange.adapter import ExchangeAdapter
+from src.exchange.dto import MarketTrade, Position
 from src.clickhouse.recorder import Recorder
 from src.crossma.base import BaseStrategy
 
@@ -8,7 +8,7 @@ from src.crossma.base import BaseStrategy
 class DrawdownStrategy(BaseStrategy):
     def __init__(
         self,
-        exchange: Exchange,
+        exchange: ExchangeAdapter,
         recorder: Recorder,
         logger: AppLogger,
         short_length: int,

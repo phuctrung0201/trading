@@ -10,7 +10,6 @@ class PaperApp:
         self.logger = provider.logger
         self.exchange = provider.okx_exchange
         self.recorder = provider.recorder
-        self.okx_client = provider.okx_client
         self.clickhouse_client = provider.clickhouse_client
         self.session_id = provider.session_id
 
@@ -33,7 +32,7 @@ class PaperApp:
             threshold_scale_map=drawdown_cfg.get("threshold_scale_map", {0.0: 1.0}),
         )
 
-        self.okx_client.set_api_callback(self._on_api_call)
+        provider.okx_client.set_api_callback(self._on_api_call)
         self.logger.info(
             f"PaperApp ready instrument={self.instrument} step={self.step}"
         )
@@ -59,9 +58,7 @@ class PaperApp:
         self.logger.info(f"Preloading candles start={start} end={end} step={self.step}")
 
         total = 0
-        for trade in self.okx_client.market.stream_history(
-            instrument=self.instrument, start=start, end=end, step=self.step,
-        ):
+        for trade in self.exchange.stream_history(start=start, end=end, step=self.step):
             total += 1
             if trade.close is not None:
                 self.exchange.set_price(float(trade.close))

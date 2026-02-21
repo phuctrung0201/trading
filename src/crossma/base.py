@@ -6,8 +6,8 @@ from typing import Any
 
 from src.app.config import periods_per_year
 from src.app.logger import AppLogger
-from src.exchange.adapter import Exchange
-from src.exchange.types import MarketTrade, Position
+from src.exchange.adapter import ExchangeAdapter
+from src.exchange.dto import MarketTrade, Position
 from src.clickhouse.recorder import Recorder
 from src.clickhouse.measurement import TradeMeasurement, TradeEventMeasurement, OpsMeasurement
 from src.ema.indicator import EMA
@@ -26,7 +26,7 @@ _RECONCILE_INTERVAL_SEC = 300
 class BaseStrategy:
     def __init__(
         self,
-        exchange: Exchange,
+        exchange: ExchangeAdapter,
         recorder: Recorder,
         logger: AppLogger,
         short_length: int,

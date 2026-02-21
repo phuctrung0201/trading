@@ -7,7 +7,6 @@ class BacktestApp:
         self.logger = provider.logger
         self.exchange = provider.simulator
         self.recorder = provider.recorder
-        self.okx_client = provider.okx_client
         self.session_id = provider.session_id
 
         setup = provider.setup

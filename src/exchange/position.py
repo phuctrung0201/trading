@@ -1,4 +1,4 @@
-from src.exchange.types import Position
+from src.exchange.dto import Position
 
 
 class PositionTracker:

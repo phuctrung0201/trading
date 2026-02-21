@@ -22,9 +22,7 @@ def main():
 
         total = 0
         try:
-            for trade in app.okx_client.market.stream_prices(
-                instrument=app.instrument, step=app.step,
-            ):
+            for trade in app.exchange.stream_prices(step=app.step):
                 total += 1
                 try:
                     if trade.close is not None:

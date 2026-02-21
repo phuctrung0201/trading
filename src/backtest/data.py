@@ -1,7 +1,7 @@
 import csv
 import os
 
-from src.exchange.types import MarketTrade
+from src.exchange.dto import MarketTrade
 
 
 DATA_DIR = "data"
@@ -14,17 +14,15 @@ def data_path(instrument: str, step: str, start: str, end: str) -> str:
     return os.path.join(DATA_DIR, filename)
 
 
-def download_history(okx_client, instrument: str, step: str,
-                     start: str, end: str, path: str, logger):
+def download_history(exchange, start: str, end: str, step: str,
+                     path: str, logger):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     logger.info(f"Downloading history to {path}")
     count = 0
     with open(path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=CANDLE_FIELDS)
         writer.writeheader()
-        for trade in okx_client.market.stream_history(
-            instrument=instrument, start=start, end=end, step=step,
-        ):
+        for trade in exchange.stream_history(start=start, end=end, step=step):
             writer.writerow({
                 "timestamp": trade.timestamp,
                 "open": trade.open,

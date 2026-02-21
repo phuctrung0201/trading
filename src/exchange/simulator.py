@@ -1,9 +1,9 @@
-from src.exchange.adapter import Exchange
+from src.exchange.adapter import ExchangeAdapter
+from src.exchange.dto import Position, OpenResult
 from src.exchange.position import PositionTracker
-from src.exchange.types import Position, OpenResult
 
 
-class SimulateExchange(Exchange):
+class SimulateExchange(ExchangeAdapter):
     """Backtesting: delegates everything to PositionTracker."""
 
     def __init__(self, initial_equity: float = 100.0):

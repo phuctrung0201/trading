@@ -22,11 +22,10 @@ def main():
 
     if not os.path.exists(path):
         download_history(
-            okx_client=app.okx_client,
-            instrument=app.instrument,
-            step=app.step,
+            exchange=provider.okx_exchange,
             start=app.backtest_start,
             end=app.backtest_end,
+            step=app.step,
             path=path,
             logger=logger,
         )

@@ -1,9 +1,14 @@
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 
-from src.exchange.types import Position, OpenResult
+from src.exchange.dto import MarketTrade, Position, OpenResult
 
 
-class Exchange(ABC):
+class ExchangeAdapter(ABC):
+    @abstractmethod
+    def set_price(self, price: float):
+        raise NotImplementedError
+
     @abstractmethod
     def open(self, position: Position) -> OpenResult:
         raise NotImplementedError
@@ -26,4 +31,10 @@ class Exchange(ABC):
 
     @abstractmethod
     def unrealized_pnl(self) -> float:
+        raise NotImplementedError
+
+    def stream_history(self, start, end, step: str) -> Iterator[MarketTrade]:
+        raise NotImplementedError
+
+    def stream_prices(self, step: str) -> Iterator[MarketTrade]:
         raise NotImplementedError

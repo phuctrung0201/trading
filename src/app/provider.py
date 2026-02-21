@@ -19,7 +19,7 @@ class AppProvider:
         from src.clickhouse.client import ClickHouseClient
         from src.clickhouse.recorder import ClickHouseRecorder
         from src.exchange.simulator import SimulateExchange
-        from src.exchange.okx import OkxExchange
+        from src.okx.exchange import OkxExchange
 
         self.okx_client = OkxClient(**okx_cfg)
         self.clickhouse_client = None
