@@ -11,7 +11,7 @@ class BacktestApp:
 
         setup = provider.setup
         self.instrument = setup.instrument
-        self.depth_ts = setup.depth.total_minutes
+        self.depth_sec = setup.depth.total_seconds
 
         self.strategy = DrawdownStrategy(
             exchange=self.exchange,
@@ -24,6 +24,6 @@ class BacktestApp:
         )
 
         self.logger.info(
-            f"BacktestApp ready instrument={self.instrument} "
-            f"depth_ts={self.depth_ts}m"
+            f"BacktestApp ready session_id {self.session_id} "
+            f"instrument {self.instrument} depth_sec {self.depth_sec}s"
         )

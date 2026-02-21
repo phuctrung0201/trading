@@ -1,15 +1,33 @@
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TypeVar, Type, get_type_hints, get_origin, get_args
+from typing import get_type_hints, get_origin, get_args
 
 import yaml
 
 CONFIG_DIR = Path("config")
-T = TypeVar("T")
 
 
-def _is_dataclass_type(cls) -> bool:
-    return hasattr(cls, "__dataclass_fields__")
+class Config:
+    """Base class for all config schemas."""
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        hints = get_type_hints(cls)
+        kwargs = {}
+        for f in fields(cls):
+            raw = data.get(f.name)
+            if raw is None:
+                continue
+            expected = _unwrap_optional(hints[f.name])
+            if isinstance(raw, dict) and _is_config_type(expected):
+                kwargs[f.name] = expected.from_dict(raw)
+            else:
+                kwargs[f.name] = raw
+        return cls(**kwargs)
+
+
+def _is_config_type(cls) -> bool:
+    return isinstance(cls, type) and issubclass(cls, Config)
 
 
 def _unwrap_optional(tp):
@@ -21,31 +39,14 @@ def _unwrap_optional(tp):
     return tp
 
 
-def _unmarshal(cls: Type[T], data: dict) -> T:
-    hints = get_type_hints(cls)
-    kwargs = {}
-    for f in fields(cls):
-        raw = data.get(f.name)
-        if raw is None:
-            continue
-        expected = _unwrap_optional(hints[f.name])
-        if _is_dataclass_type(expected) and isinstance(raw, dict):
-            kwargs[f.name] = _unmarshal(expected, raw)
-        else:
-            kwargs[f.name] = raw
-    return cls(**kwargs)
-
-
-def load_config(module: str, name: str, schema: Type[T] | None = None) -> T | dict:
-    """Load config/<module>/<name>.yaml and return as typed config or dict."""
+def load_config[T: Config](module: str, name: str, schema: type[T]) -> T:
+    """Load config/<module>/<name>.yaml and return as typed config."""
     path = CONFIG_DIR / module / f"{name}.yaml"
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
         raise ValueError(f"Config root must be a mapping: {path}")
-    if schema is not None:
-        return _unmarshal(schema, data)
-    return data
+    return schema.from_dict(data)
 
 
 # ---------------------------------------------------------------------------
@@ -53,12 +54,12 @@ def load_config(module: str, name: str, schema: Type[T] | None = None) -> T | di
 # ---------------------------------------------------------------------------
 
 @dataclass
-class LoggerConfig:
+class LoggerConfig(Config):
     log_level: str = "INFO"
 
 
 @dataclass
-class OkxConfig:
+class OkxConfig(Config):
     api_key: str = ""
     secret_key: str = ""
     passphrase: str = ""
@@ -66,7 +67,7 @@ class OkxConfig:
 
 
 @dataclass
-class ClickHouseConfig:
+class ClickHouseConfig(Config):
     enabled: bool = False
     url: str = "http://localhost:8123"
     database: str = "trading"
@@ -75,7 +76,7 @@ class ClickHouseConfig:
 
 
 @dataclass
-class DepthConfig:
+class DepthConfig(Config):
     hour: int = 0
     minute: int = 0
 
@@ -85,13 +86,13 @@ class DepthConfig:
 
 
 @dataclass
-class CrossMAConfig:
+class CrossMAConfig(Config):
     short_length: int = 15
     long_length: int = 200
 
 
 @dataclass
-class DrawdownConfig:
+class DrawdownConfig(Config):
     window: int = 500
     threshold_scale_map: dict[float, float] = field(
         default_factory=lambda: {0.0: 1.0},
@@ -99,7 +100,7 @@ class DrawdownConfig:
 
 
 @dataclass
-class SetupConfig:
+class SetupConfig(Config):
     instrument: str = ""
     leverage: int = 1
     strategy: str = "drawdown"

@@ -2,7 +2,6 @@ import argparse
 
 from src.app.provider import AppProvider
 from src.backtest.app import BacktestApp
-from src.backtest.data import data_path, download_history, load_trades
 
 
 def parse_args():
@@ -17,18 +16,9 @@ def main():
     app = BacktestApp(provider)
     logger = app.logger
 
-    path = data_path(app.instrument, app.depth_ts)
-
-    download_history(
-        exchange=provider.okx_exchange,
-        depth_ts=app.depth_ts,
-        path=path,
-        logger=logger,
-    )
-
     try:
         total = 0
-        for trade in load_trades(path):
+        for trade in provider.okx_exchange.stream_history(depth_sec=app.depth_sec):
             total += 1
             try:
                 app.exchange.set_price(trade.price)

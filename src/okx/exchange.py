@@ -147,9 +147,9 @@ class OkxExchange(ExchangeAdapter):
             cursor = str(oldest_ts)
         return trades
 
-    def stream_history(self, depth_ts: int):
+    def stream_history(self, depth_sec: int):
         start_ms = int(
-            (datetime.now(timezone.utc) - timedelta(minutes=depth_ts)).timestamp() * 1000
+            (datetime.now(timezone.utc) - timedelta(seconds=depth_sec)).timestamp() * 1000
         )
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 

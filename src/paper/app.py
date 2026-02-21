@@ -15,7 +15,7 @@ class PaperApp:
 
         setup = provider.setup
         self.instrument = setup.instrument
-        self.depth_ts = setup.depth.total_minutes
+        self.depth_sec = setup.depth.total_seconds
 
         self.strategy = DrawdownStrategy(
             exchange=self.exchange,
@@ -31,13 +31,13 @@ class PaperApp:
         self.logger.info(f"PaperApp ready instrument={self.instrument}")
 
     def preload(self):
-        if self.depth_ts <= 0:
-            self.logger.info("Preload skipped depth_ts=0")
+        if self.depth_sec <= 0:
+            self.logger.info("Preload skipped depth_sec=0")
             return
 
-        self.logger.info(f"Preloading trades depth_ts={self.depth_ts}m")
+        self.logger.info(f"Preloading trades depth_sec={self.depth_sec}s")
         total = 0
-        for trade in self.exchange.stream_history(depth_ts=self.depth_ts):
+        for trade in self.exchange.stream_history(depth_sec=self.depth_sec):
             total += 1
             self.strategy.ack(trade)
         self.logger.info(f"Preload completed total={total}")
