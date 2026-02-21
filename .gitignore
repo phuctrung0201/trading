@@ -8,9 +8,7 @@ data/
 result*.png
 
 # Credentials
-setup.py
-setup.yaml
-setup/
+config/okx/client.yaml
 
 # Supervisor runtime artifacts
 .supervisor/*

@@ -1,28 +1,32 @@
-.PHONY: trade trade-one trade-stop trade-status trade-logs backtest backtest-one monitor monitor-down monitor-logs
+.PHONY: paper paper-stop paper-status paper-logs backtest monitor monitor-down monitor-logs
 
-trade:
+paper:
 	@mkdir -p .supervisor
 	@supervisord -c supervisord.conf 2>/dev/null || true
-	supervisorctl -c supervisord.conf start trade
+	supervisorctl -c supervisord.conf start paper
 
-trade-one:
-	python trade.py --setup $(SETUP)
+paper-one:
+	python -m src.paper.main --setup $(SETUP)
 
-trade-stop:
-	supervisorctl -c supervisord.conf stop trade
+paper-stop:
+	supervisorctl -c supervisord.conf stop paper
 	supervisorctl -c supervisord.conf shutdown
 
-trade-status:
+paper-status:
 	supervisorctl -c supervisord.conf status
 
-trade-logs:
-	tail -f .supervisor/trade.stdout.log .supervisor/trade.stderr.log
+paper-logs:
+	tail -f .supervisor/paper.stdout.log .supervisor/paper.stderr.log
 
 backtest:
-	python backtest.py
+	@for cfg in config/backtest/*.yaml; do \
+		setup=$$(basename "$$cfg" .yaml); \
+		echo "=== Backtest $$setup ==="; \
+		python -m src.backtest.main --setup "$$setup"; \
+	done
 
 backtest-one:
-	python backtest.py --setup $(SETUP)
+	python -m src.backtest.main --setup $(SETUP)
 
 monitor:
 	-docker rm -f influxdb grafana 2>/dev/null

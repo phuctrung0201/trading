@@ -1,0 +1,5 @@
+enabled: true
+url: http://localhost:8123
+database: trading
+user: default
+password: "trading"
