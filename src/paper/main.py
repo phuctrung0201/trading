@@ -29,10 +29,10 @@ def main():
                     app.emit_tick_ops()
                 except Exception as exc:
                     logger.error(
-                        f"Strategy ack failed timestamp={trade.timestamp} price={trade.price}"
+                        f"Strategy execution failed timestamp={trade.timestamp} price={trade.price}: {exc}"
                     )
                     app.emit_error_ops(str(exc))
-                    raise
+                    # Do not raise here to keep the paper trading process alive
         except KeyboardInterrupt:
             logger.info("Stopping paper trading...")
         logger.info(f"Paper completed total_trades={total}")

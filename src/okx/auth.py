@@ -60,28 +60,46 @@ class OkxAuth:
         if self.demo:
             headers["x-simulated-trading"] = "1"
 
-        t0 = time.monotonic()
-        if method.upper() == "GET":
-            resp = self._session.get(f"{_BASE_URL}{path}", headers=headers, timeout=15)
-        else:
-            resp = self._session.post(f"{_BASE_URL}{path}", headers=headers, data=body_str, timeout=15)
-        latency_ms = int((time.monotonic() - t0) * 1000)
-        self._notify_api(latency_ms=latency_ms, response_code=resp.status_code, source=path)
+        attempts = 0
+        while True:
+            try:
+                t0 = time.monotonic()
+                if method.upper() == "GET":
+                    resp = self._session.get(f"{_BASE_URL}{path}", headers=headers, timeout=15)
+                else:
+                    resp = self._session.post(f"{_BASE_URL}{path}", headers=headers, data=body_str, timeout=15)
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                self._notify_api(latency_ms=latency_ms, response_code=resp.status_code, source=path)
 
-        resp.raise_for_status()
-        result = resp.json()
-        if str(result.get("code", "")) != "0":
-            detail = result.get("msg", "")
-            data = result.get("data")
-            if isinstance(data, list) and data:
-                detail = data[0].get("sMsg", detail)
-            raise RuntimeError(f"OKX request failed: {result.get('code')} {detail}")
-        return result.get("data", [])
+                resp.raise_for_status()
+                result = resp.json()
+                if str(result.get("code", "")) != "0":
+                    detail = result.get("msg", "")
+                    data = result.get("data")
+                    if isinstance(data, list) and data:
+                        detail = data[0].get("sMsg", detail)
+                    raise RuntimeError(f"OKX request failed: {result.get('code')} {detail}")
+                return result.get("data", [])
+            except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as exc:
+                attempts += 1
+                if attempts >= 5:
+                    raise
+                delay = min(30.0, 1.0 * (2 ** (attempts - 1)))
+                time.sleep(delay)
 
     def public_get(self, path: str, params: dict | None = None):
-        resp = self._session.get(f"{_BASE_URL}{path}", params=params, timeout=15)
-        resp.raise_for_status()
-        return resp.json().get("data", [])
+        attempts = 0
+        while True:
+            try:
+                resp = self._session.get(f"{_BASE_URL}{path}", params=params, timeout=15)
+                resp.raise_for_status()
+                return resp.json().get("data", [])
+            except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as exc:
+                attempts += 1
+                if attempts >= 5:
+                    raise
+                delay = min(30.0, 1.0 * (2 ** (attempts - 1)))
+                time.sleep(delay)
 
     @property
     def session(self) -> requests.Session:

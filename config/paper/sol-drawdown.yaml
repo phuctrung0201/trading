@@ -1,16 +1,12 @@
 instrument: SOL-USDT-SWAP
 leverage: 1
 
-depth:
-  hour: 0
-  minute: 30
-
 crossma:
-  short_length: 400
-  long_length: 500
+  short_length: 100
+  long_length: 50000
 
 drawdown:
-  window: 1440
+  window: 100000
   threshold_scale_map:
     0.0: 1.0
     0.02: 0.2

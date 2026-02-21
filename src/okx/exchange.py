@@ -3,6 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
+import requests
 from requests import HTTPError
 
 from src.exchange.adapter import ExchangeAdapter
@@ -31,7 +32,7 @@ class _RateLimiter:
 class OkxExchange(ExchangeAdapter):
     """OKX exchange adapter: market data, order execution, and position tracking."""
 
-    MAX_RETRIES = 3
+    MAX_RETRIES = 5
     MARGIN_REDUCE = 0.8
 
     def __init__(self, okx_client, instrument: str, leverage: int = 1):
@@ -60,30 +61,37 @@ class OkxExchange(ExchangeAdapter):
 
         attempts = 0
         while True:
-            resp = self._auth.session.get(
-                f"{_BASE_URL}{endpoint}", params=params, timeout=15,
-            )
-            if resp.status_code != 429:
-                resp.raise_for_status()
-                body = resp.json()
-                if str(body.get("code", "")) != "0":
-                    raise RuntimeError(
-                        f"OKX trades request failed: {body.get('code')} {body.get('msg')}"
-                    )
-                return body.get("data", [])
-
-            attempts += 1
-            if attempts >= 6:
-                raise HTTPError(
-                    f"429 Client Error: Too Many Requests for url: {resp.url}",
-                    response=resp,
+            try:
+                resp = self._auth.session.get(
+                    f"{_BASE_URL}{endpoint}", params=params, timeout=15,
                 )
-            retry_after = resp.headers.get("Retry-After")
-            if retry_after is not None and retry_after.isdigit():
-                delay = max(1.0, float(retry_after))
-            else:
-                delay = min(30.0, 1.5 * (2 ** (attempts - 1)))
-            time.sleep(delay)
+                if resp.status_code != 429:
+                    resp.raise_for_status()
+                    body = resp.json()
+                    if str(body.get("code", "")) != "0":
+                        raise RuntimeError(
+                            f"OKX trades request failed: {body.get('code')} {body.get('msg')}"
+                        )
+                    return body.get("data", [])
+
+                attempts += 1
+                if attempts >= 6:
+                    raise HTTPError(
+                        f"429 Client Error: Too Many Requests for url: {resp.url}",
+                        response=resp,
+                    )
+                retry_after = resp.headers.get("Retry-After")
+                if retry_after is not None and retry_after.isdigit():
+                    delay = max(1.0, float(retry_after))
+                else:
+                    delay = min(30.0, 1.5 * (2 ** (attempts - 1)))
+                time.sleep(delay)
+            except (requests.exceptions.RequestException, HTTPError) as exc:
+                attempts += 1
+                if attempts >= 6:
+                    raise
+                delay = min(30.0, 1.0 * (2 ** (attempts - 1)))
+                time.sleep(delay)
 
     def _recent_trades(self, limit: int = 100) -> list:
         return self._request_trades(
@@ -190,14 +198,17 @@ class OkxExchange(ExchangeAdapter):
     def stream_prices(self):
         last_trade_id: str | None = None
         while True:
-            raw = self._recent_trades(limit=100)
-            raw.sort(key=lambda t: int(t["ts"]))
-            for t in raw:
-                tid = t["tradeId"]
-                if last_trade_id is not None and int(tid) <= int(last_trade_id):
-                    continue
-                last_trade_id = tid
-                yield self._normalize_trade(t)
+            try:
+                raw = self._recent_trades(limit=100)
+                raw.sort(key=lambda t: int(t["ts"]))
+                for t in raw:
+                    tid = t["tradeId"]
+                    if last_trade_id is not None and int(tid) <= int(last_trade_id):
+                        continue
+                    last_trade_id = tid
+                    yield self._normalize_trade(t)
+            except Exception:
+                time.sleep(1)
             time.sleep(0.2)
 
     # -- contract helpers ---------------------------------------------------
@@ -245,21 +256,24 @@ class OkxExchange(ExchangeAdapter):
 
     def open(self, position: Position) -> OpenResult:
         if not self._leverage_set:
-            self._account.set_leverage(self._instrument, self._leverage)
-            self._leverage_set = True
+            try:
+                self._account.set_leverage(self._instrument, self._leverage)
+                self._leverage_set = True
+            except Exception as exc:
+                return OpenResult(success=False, message=f"leverage set failed: {exc}")
 
         side = position.side
         usd_size = position.size
         last_error = None
 
         for attempt in range(self.MAX_RETRIES):
-            contracts = self._usd_to_contracts(usd_size)
-            if contracts <= 0:
-                return OpenResult(
-                    success=False,
-                    message=f"size too small usd={usd_size:.4f} contracts={contracts}",
-                )
             try:
+                contracts = self._usd_to_contracts(usd_size)
+                if contracts <= 0:
+                    return OpenResult(
+                        success=False,
+                        message=f"size too small usd={usd_size:.4f} contracts={contracts}",
+                    )
                 data = self._trading.place_order(
                     instrument=self._instrument,
                     side=side,
