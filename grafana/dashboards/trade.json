@@ -171,10 +171,35 @@
       }
     },
     {
+      "id": 15,
+      "title": "Z-Score",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 18 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "interval": "1m",
+      "targets": [
+        {
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, session_id, argMax(zscore, timestamp) AS z FROM trading.trade_event WHERE event IS NULL AND zscore IS NOT NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, session_id ORDER BY t",
+          "refId": "A",
+          "format": 0
+        }
+      ],
+      "transformations": [
+        { "id": "renameByRegex", "options": { "regex": "(.+) (.+)", "renamePattern": "$2" } }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3,
+          "custom": { "lineWidth": 1, "fillOpacity": 10 },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": -0.5 }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] }
+        }
+      }
+    },
+    {
       "id": 12,
       "title": "MA Indicators",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 18 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 24 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
@@ -208,7 +233,7 @@
       "id": 13,
       "title": "Position",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 24 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 30 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
@@ -276,7 +301,7 @@
       "id": 17,
       "title": "Trade Event Log",
       "type": "table",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 42 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
@@ -298,7 +323,7 @@
       "id": 21,
       "title": "API Latency",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 44 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 50 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
@@ -319,7 +344,7 @@
       "id": 22,
       "title": "API Response Log",
       "type": "table",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 44 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 50 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
@@ -333,7 +358,7 @@
       "id": 25,
       "title": "Candle Lag",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 50 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 56 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
@@ -354,7 +379,7 @@
       "id": 26,
       "title": "Write Buffer Size",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 50 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 56 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
@@ -375,7 +400,7 @@
       "id": 23,
       "title": "Reconciliation Log",
       "type": "table",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 56 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 62 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
@@ -389,7 +414,7 @@
       "id": 24,
       "title": "Error Log",
       "type": "table",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 56 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 62 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
