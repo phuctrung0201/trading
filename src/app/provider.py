@@ -31,7 +31,7 @@ class AppProvider:
             demo=okx_cfg.demo,
         )
         self.simulator = SimulateExchange()
-        self.okx_exchange = OkxExchange(okx_client=self.okx_client)
+        self.okx_exchange = OkxExchange(okx_client=self.okx_client, logger=self.logger)
 
         self.clickhouse_client = None
         if ch_cfg.enabled:

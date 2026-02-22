@@ -35,10 +35,11 @@ class OkxExchange(ExchangeAdapter):
     MAX_RETRIES = 5
     MARGIN_REDUCE = 0.8
 
-    def __init__(self, okx_client):
+    def __init__(self, okx_client, logger=None):
         self._auth: OkxAuth = okx_client.auth
         self._trading = okx_client.trading
         self._account = okx_client.account
+        self._logger = logger
         self._instrument: str | None = None
         self._leverage: int = 1
         self._leverage_set = False
@@ -141,18 +142,28 @@ class OkxExchange(ExchangeAdapter):
     _HISTORY_WORKERS = 4
     _HISTORY_MAX_RPS = 8
 
+    def _log(self, msg: str):
+        if self._logger is not None:
+            self._logger.info(msg)
+
     def _fetch_range(self, range_start_ms: int, range_end_ms: int,
                      limiter: "_RateLimiter") -> list[dict]:
         """Fetch all history trades within a time range, paging backwards."""
         trades: list[dict] = []
         cursor = str(range_end_ms)
+        batch = 0
         while True:
             limiter.wait()
             raw = self._history_trades(limit=100, after=cursor, type_param=2)
             if not raw:
                 break
+            batch += 1
             trades.extend(raw)
             oldest_ts = int(raw[-1]["ts"])
+            self._log(
+                f"fetch_range batch={batch} got={len(raw)} "
+                f"range=[{range_start_ms}..{range_end_ms}] oldest_ts={oldest_ts} total={len(trades)}"
+            )
             if oldest_ts <= range_start_ms or len(raw) < 100:
                 break
             if str(oldest_ts) == cursor:
@@ -171,6 +182,7 @@ class OkxExchange(ExchangeAdapter):
             r_end = end_ms if i == n - 1 else start_ms + (i + 1) * chunk_ms
             ranges.append((r_start, r_end))
 
+        self._log(f"stream_range workers={n} chunks={len(ranges)}")
         limiter = _RateLimiter(self._HISTORY_MAX_RPS)
         all_trades: list[dict] = []
 
@@ -180,7 +192,10 @@ class OkxExchange(ExchangeAdapter):
                 for i, (r_start, r_end) in enumerate(ranges)
             }
             for future in as_completed(futures):
-                all_trades.extend(future.result())
+                chunk_trades = future.result()
+                chunk_idx = futures[future]
+                self._log(f"stream_range chunk={chunk_idx} fetched={len(chunk_trades)}")
+                all_trades.extend(chunk_trades)
 
         seen: set[str] = set()
         unique: list[dict] = []
@@ -190,6 +205,7 @@ class OkxExchange(ExchangeAdapter):
                 seen.add(tid)
                 unique.append(t)
 
+        self._log(f"stream_range raw={len(all_trades)} unique={len(unique)}")
         unique.sort(key=lambda t: int(t["ts"]))
         for t in unique:
             if int(t["ts"]) >= start_ms:
