@@ -6,23 +6,12 @@ from src.strategy.adapter import StrategyAdapter
 
 
 class CrossMAStrategy(StrategyAdapter):
-    def __init__(
-        self,
-        exchange: ExchangeAdapter,
-        recorder: Recorder,
-        logger: AppLogger,
-        short_length: int,
-        long_length: int,
-        **kwargs,
-    ):
-        super().__init__(
-            exchange=exchange,
-            recorder=recorder,
-            logger=logger,
-            short_length=short_length,
-            long_length=long_length,
-            **kwargs,
-        )
+    def __init__(self, recorder: Recorder, logger: AppLogger):
+        super().__init__(recorder=recorder, logger=logger)
+
+    def bootstrap(self, exchange: ExchangeAdapter, short_length: int,
+                  long_length: int):
+        super().bootstrap(exchange, short_length, long_length)
 
     def compute_signal(self, short_ema: float, long_ema: float) -> str | None:
         if short_ema > long_ema:

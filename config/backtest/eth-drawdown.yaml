@@ -1,8 +1,10 @@
 instrument: ETH-USDT-SWAP
 
-depth:
-  hour: 5
-  minute: 30
+backtest:
+  depth:
+    hour: 5
+    minute: 30
+
 
 crossma:
   short_length: 10000

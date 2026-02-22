@@ -7,14 +7,13 @@ from src.clickhouse.measurement import OpsMeasurement
 class PaperApp:
     def __init__(self, provider: AppProvider):
         self.logger = provider.logger
-        self.exchange = provider.exchange
+        self.session_id = provider.session_id
+        self.exchange = provider.okx_exchange
         self.strategy = provider.strategy
         self.recorder = provider.recorder
         self.clickhouse_client = provider.clickhouse_client
-        self.session_id = provider.session_id
 
         provider.okx_client.set_api_callback(self._on_api_call)
-        self.logger.info(f"PaperApp ready instrument={provider.setup.instrument}")
 
     def _on_api_call(self, latency_ms: int, response_code: int, source: str):
         ops = OpsMeasurement(

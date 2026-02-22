@@ -1,3 +1,5 @@
+from collections import deque
+
 from src.app.logger import AppLogger
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade, Position
@@ -6,27 +8,15 @@ from src.strategy.adapter import StrategyAdapter
 
 
 class DrawdownStrategy(StrategyAdapter):
-    def __init__(
-        self,
-        exchange: ExchangeAdapter,
-        recorder: Recorder,
-        logger: AppLogger,
-        short_length: int,
-        long_length: int,
-        window: int = 500,
-        threshold_scale_map: dict | None = None,
-        **kwargs,
-    ):
-        super().__init__(
-            exchange=exchange,
-            recorder=recorder,
-            logger=logger,
-            short_length=short_length,
-            long_length=long_length,
-            **kwargs,
-        )
+    def __init__(self, recorder: Recorder, logger: AppLogger):
+        super().__init__(recorder=recorder, logger=logger)
+
+    def bootstrap(self, exchange: ExchangeAdapter, short_length: int,
+                  long_length: int, window: int = 500,
+                  threshold_scale_map: dict | None = None):
+        super().bootstrap(exchange, short_length, long_length)
         self.drawdown_window = int(window)
-        self._equity_window: list[float] = []
+        self._equity_window: deque[float] = deque(maxlen=self.drawdown_window)
         raw_map = threshold_scale_map or {0.0: 1.0}
         self.position_sizing_map = {float(k): float(v) for k, v in raw_map.items()}
         self.drawdown_thresholds = sorted(self.position_sizing_map.keys())
@@ -38,11 +28,8 @@ class DrawdownStrategy(StrategyAdapter):
             return "SHORT"
         return None
 
-    def calculate_drawdown(self) -> float:
-        equity = self.exchange.get_equity()
+    def calculate_drawdown(self, equity: float) -> float:
         self._equity_window.append(equity)
-        if len(self._equity_window) > self.drawdown_window:
-            self._equity_window = self._equity_window[-self.drawdown_window:]
         peak = max(self._equity_window)
         if peak <= 0:
             return 0.0
@@ -61,11 +48,10 @@ class DrawdownStrategy(StrategyAdapter):
         self._mark_to_market()
         self.reconcile()
 
-        drawdown = self.calculate_drawdown()
+        equity = self.exchange.get_equity()
+        drawdown = self.calculate_drawdown(equity)
         scale = self.scale_position(drawdown)
         result = self._signal(trade.price)
-
-        equity = self.exchange.get_equity()
         self._logger.info(
             f"DrawdownStrategy bucket "
             f"timestamp={trade.timestamp} "
@@ -90,6 +76,7 @@ class DrawdownStrategy(StrategyAdapter):
                     pnl=close_pnl,
                     signal=result.signal,
                     reason=f"signal flip to {result.signal}",
+                    drawdown=drawdown,
                 )
                 self._current_position = None
                 self._exposure_ratio = 1.0
@@ -114,6 +101,7 @@ class DrawdownStrategy(StrategyAdapter):
                         fill_price=self._current_position.price,
                         signal=result.signal,
                         reason=f"EMA crossover {result.signal} scale={scale:.4f}",
+                        drawdown=drawdown,
                     )
                 else:
                     self._logger.error(
@@ -123,6 +111,7 @@ class DrawdownStrategy(StrategyAdapter):
                     self._emit_event(
                         trade, "error", signal_result=result,
                         reason=f"open failed: {open_result.message}",
+                        drawdown=drawdown,
                     )
 
         if self._current_position is not None and scale != self._exposure_ratio:
@@ -153,6 +142,7 @@ class DrawdownStrategy(StrategyAdapter):
                     trade, "resize", signal_result=result,
                     fill_price=self._current_position.price,
                     reason=f"drawdown scale {self._exposure_ratio:.4f} -> {scale:.4f}",
+                    drawdown=drawdown,
                 )
             else:
                 self._logger.error(
@@ -162,6 +152,7 @@ class DrawdownStrategy(StrategyAdapter):
                 self._emit_event(
                     trade, "error", signal_result=result,
                     reason=f"resize failed: {open_result.message}",
+                    drawdown=drawdown,
                 )
 
         self._emit_trade_measurement(trade, result, drawdown=drawdown)

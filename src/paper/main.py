@@ -1,5 +1,6 @@
 import argparse
 
+from src.app.config import load_config, SetupConfig
 from src.app.provider import AppProvider
 from src.paper.app import PaperApp
 
@@ -12,7 +13,24 @@ def parse_args():
 
 def main():
     args = parse_args()
-    provider = AppProvider(mode="paper", setup_name=args.setup)
+    provider = AppProvider()
+    setup = load_config("paper", args.setup, SetupConfig)
+
+    provider.okx_exchange.bootstrap(
+        instrument=setup.instrument, leverage=setup.leverage,
+    )
+    provider.recorder.bootstrap(
+        setup_name=args.setup, instrument=setup.instrument,
+        strategy=setup.strategy,
+    )
+    provider.strategy.bootstrap(
+        exchange=provider.okx_exchange,
+        short_length=setup.crossma.short_length,
+        long_length=setup.crossma.long_length,
+        window=setup.drawdown.window,
+        threshold_scale_map=setup.drawdown.threshold_scale_map,
+    )
+
     app = PaperApp(provider)
     logger = app.logger
 

@@ -100,10 +100,16 @@ class DrawdownConfig(Config):
 
 
 @dataclass
+class BacktestConfig(Config):
+    dataset: str | None = None
+    depth: DepthConfig | None = None
+
+
+@dataclass
 class SetupConfig(Config):
     instrument: str = ""
     leverage: int = 1
     strategy: str = "drawdown"
-    depth: DepthConfig = field(default_factory=DepthConfig)
+    backtest: BacktestConfig = field(default_factory=BacktestConfig)
     crossma: CrossMAConfig = field(default_factory=CrossMAConfig)
     drawdown: DrawdownConfig = field(default_factory=DrawdownConfig)

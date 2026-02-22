@@ -1,5 +1,6 @@
 import argparse
 
+from src.app.config import load_config, SetupConfig
 from src.app.provider import AppProvider
 from src.backtest.app import BacktestApp
 
@@ -10,15 +11,45 @@ def parse_args():
     return parser.parse_args()
 
 
+def _build_trade_source(provider: AppProvider, setup):
+    bt = setup.backtest
+    dataset = bt.dataset
+    if dataset:
+        from src.clickhouse.dataset import DatasetReader
+        if provider.clickhouse_client is None:
+            raise RuntimeError("ClickHouse must be enabled for dataset backtest")
+        reader = DatasetReader(provider.clickhouse_client, dataset, provider.logger)
+        return reader.stream()
+    depth_sec = bt.depth.total_minutes * 60 if bt.depth else None
+    return provider.okx_exchange.stream_history(depth_sec=depth_sec)
+
+
 def main():
     args = parse_args()
-    provider = AppProvider(mode="backtest", setup_name=args.setup)
+    provider = AppProvider()
+    setup = load_config("backtest", args.setup, SetupConfig)
+
+    provider.okx_exchange.bootstrap(
+        instrument=setup.instrument, leverage=setup.leverage,
+    )
+    provider.recorder.bootstrap(
+        setup_name=args.setup, instrument=setup.instrument,
+        strategy=setup.strategy,
+    )
+    provider.strategy.bootstrap(
+        exchange=provider.simulator,
+        short_length=setup.crossma.short_length,
+        long_length=setup.crossma.long_length,
+        window=setup.drawdown.window,
+        threshold_scale_map=setup.drawdown.threshold_scale_map,
+    )
+
     app = BacktestApp(provider)
     logger = app.logger
 
     try:
         total = 0
-        for trade in provider.okx_exchange.stream_history(depth_sec=app.depth_sec):
+        for trade in _build_trade_source(provider, setup):
             total += 1
             try:
                 app.exchange.set_price(trade.price)

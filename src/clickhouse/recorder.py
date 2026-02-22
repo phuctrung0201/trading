@@ -10,11 +10,16 @@ class Recorder(ABC):
 
 
 class ClickHouseRecorder(Recorder):
-    def __init__(self, clickhouse_client, session_id: str,
-                 setup_name: str, instrument: str, strategy: str,
-                 indicator: str = "vwema"):
+    def __init__(self, clickhouse_client, session_id: str):
         self.clickhouse_client = clickhouse_client
         self.session_id = session_id
+        self.setup_name: str = ""
+        self.instrument: str = ""
+        self.strategy: str = ""
+        self.indicator: str = "vwema"
+
+    def bootstrap(self, setup_name: str, instrument: str, strategy: str,
+                  indicator: str = "vwema"):
         self.setup_name = setup_name
         self.instrument = instrument
         self.strategy = strategy

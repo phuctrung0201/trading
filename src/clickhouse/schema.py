@@ -43,6 +43,15 @@ _OPS_COLUMNS = [
     ("error_message", "Nullable(String)", pa.string()),
 ]
 
+_MARKET_TRADE_COLUMNS = [
+    ("dataset", "String", pa.string()),
+    ("trade_id", "String", pa.string()),
+    ("timestamp", "DateTime64(3, 'UTC')", pa.timestamp("ms", tz="UTC")),
+    ("price", "Float64", pa.float64()),
+    ("size", "Float64", pa.float64()),
+    ("side", "String", pa.string()),
+]
+
 TABLES: dict[str, dict] = {
     "trade_event": {
         "columns": _TRADE_EVENT_COLUMNS,
@@ -51,6 +60,10 @@ TABLES: dict[str, dict] = {
     "ops": {
         "columns": _OPS_COLUMNS,
         "order_by": "(session_id, timestamp)",
+    },
+    "market_trade": {
+        "columns": _MARKET_TRADE_COLUMNS,
+        "order_by": "(dataset, timestamp)",
     },
 }
 

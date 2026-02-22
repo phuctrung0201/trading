@@ -27,7 +27,10 @@ class VWEMA:
         if self._value is None:
             self._value = price
             return self._value
-        w = 1.0 - math.pow(1.0 - self.alpha, volume)
+        if volume == 1.0:
+            w = self.alpha
+        else:
+            w = 1.0 - math.pow(1.0 - self.alpha, volume)
         self._value = w * price + (1.0 - w) * self._value
         return self._value
 

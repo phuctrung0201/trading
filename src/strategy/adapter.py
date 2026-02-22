@@ -23,18 +23,14 @@ _RECONCILE_INTERVAL_SEC = 300
 
 
 class StrategyAdapter:
-    def __init__(
-        self,
-        exchange: ExchangeAdapter,
-        recorder: Recorder,
-        logger: AppLogger,
-        short_length: int,
-        long_length: int,
-        **kwargs,
-    ):
-        self.exchange = exchange
+    def __init__(self, recorder: Recorder, logger: AppLogger):
+        self.exchange: ExchangeAdapter | None = None
         self.recorder = recorder
         self._logger = logger
+
+    def bootstrap(self, exchange: ExchangeAdapter, short_length: int,
+                  long_length: int):
+        self.exchange = exchange
         self.short = int(short_length)
         self.long = int(long_length)
         self._short_ema = VWEMA(period=self.short)
@@ -44,17 +40,22 @@ class StrategyAdapter:
         self._exposure_ratio: float = 1.0
         initial_equity = self.exchange.get_equity()
         self._peak_equity: float = initial_equity
-        self._returns: list[float] = []
+        self._sum_returns: float = 0.0
+        self._sum_sq_returns: float = 0.0
+        self._return_count: int = 0
         self._prev_equity: float = initial_equity
         self._last_reconcile_time: float = time.monotonic()
         self._last_close_price: float = 0.0
         self._warmed_up: bool = False
+        self._ts_fast_path: str | None = None
 
     def _mark_to_market(self):
         equity = self.exchange.get_equity()
         if self._prev_equity > 0:
             period_return = (equity - self._prev_equity) / self._prev_equity
-            self._returns.append(period_return)
+            self._sum_returns += period_return
+            self._sum_sq_returns += period_return * period_return
+            self._return_count += 1
         self._prev_equity = equity
         if equity > self._peak_equity:
             self._peak_equity = equity
@@ -174,15 +175,14 @@ class StrategyAdapter:
         return (self.exchange.get_equity() - self._peak_equity) / self._peak_equity
 
     def _calculate_sharpe_ratio(self, risk_free_rate: float = 0.0) -> float:
-        n = len(self._returns)
+        n = self._return_count
         if n < 2:
             return 0.0
-        mean_return = sum(self._returns) / n
-        variance = sum((r - mean_return) ** 2 for r in self._returns) / n
-        std_dev = variance ** 0.5
-        if std_dev == 0:
+        mean = self._sum_returns / n
+        variance = self._sum_sq_returns / n - mean * mean
+        if variance <= 0:
             return 0.0
-        return (mean_return - risk_free_rate) / std_dev * (n ** 0.5)
+        return (mean - risk_free_rate) / (variance ** 0.5) * (n ** 0.5)
 
     def _signal(self, close: float, volume: float = 1.0) -> SignalResult:
         self._tick_count += 1
@@ -221,6 +221,7 @@ class StrategyAdapter:
         pnl: float | None = None,
         signal: str | None = None,
         reason: str | None = None,
+        drawdown: float | None = None,
     ):
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
@@ -228,6 +229,7 @@ class StrategyAdapter:
         position_side = self._current_position.side if self._current_position is not None else "flat"
         if position_side == "sell":
             position_size = -position_size
+        dd = drawdown if drawdown is not None else self._calculate_drawdown()
         event_measurement = TradeEventMeasurement(
             timestamp=self._measurement_timestamp(trade),
             event=event,
@@ -235,7 +237,7 @@ class StrategyAdapter:
             close_price=self._last_close_price,
             position_size=position_size,
             position_side=position_side,
-            drawdown=self._calculate_drawdown(),
+            drawdown=dd,
             sharpe_ratio=self._calculate_sharpe_ratio(),
             short_ema=signal_result.short_ema if signal_result else None,
             long_ema=signal_result.long_ema if signal_result else None,
@@ -251,22 +253,39 @@ class StrategyAdapter:
         raw = trade.timestamp
         if raw is None:
             return None
+
+        fast = self._ts_fast_path
+        if fast == "numeric":
+            return int(raw) * 1_000_000
+        if fast == "str_int":
+            return int(raw) * 1_000_000
+        if fast == "str_iso":
+            text = raw if not raw.endswith("Z") else raw[:-1] + "+00:00"
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp() * 1_000_000_000)
+
         if isinstance(raw, (int, float)):
+            self._ts_fast_path = "numeric"
             return int(raw) * 1_000_000
         if isinstance(raw, str):
-            text = raw.strip()
             try:
-                return int(text) * 1_000_000
+                result = int(raw) * 1_000_000
+                self._ts_fast_path = "str_int"
+                return result
             except ValueError:
                 pass
+            text = raw.strip()
             if text.endswith("Z"):
-                text = text.replace("Z", "+00:00")
+                text = text[:-1] + "+00:00"
             try:
                 dt = datetime.fromisoformat(text)
             except ValueError:
                 return None
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
+            self._ts_fast_path = "str_iso"
             return int(dt.timestamp() * 1_000_000_000)
         return None
 

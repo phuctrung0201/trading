@@ -35,17 +35,22 @@ class OkxExchange(ExchangeAdapter):
     MAX_RETRIES = 5
     MARGIN_REDUCE = 0.8
 
-    def __init__(self, okx_client, instrument: str, leverage: int = 1):
-        initial_equity = float(okx_client.account.get_asset(currency="USDT"))
-        self._tracker = PositionTracker(initial_equity)
+    def __init__(self, okx_client):
         self._auth: OkxAuth = okx_client.auth
         self._trading = okx_client.trading
         self._account = okx_client.account
-        self._instrument = instrument
-        self._leverage = leverage
+        self._instrument: str | None = None
+        self._leverage: int = 1
         self._leverage_set = False
         self._ct_val: float | None = None
         self._lot_sz: float | None = None
+        self._tracker: PositionTracker | None = None
+
+    def bootstrap(self, instrument: str, leverage: int = 1):
+        self._instrument = instrument
+        self._leverage = leverage
+        initial_equity = float(self._account.get_asset(currency="USDT"))
+        self._tracker = PositionTracker(initial_equity)
 
     # -- market data --------------------------------------------------------
 
@@ -155,20 +160,15 @@ class OkxExchange(ExchangeAdapter):
             cursor = str(oldest_ts)
         return trades
 
-    def stream_history(self, depth_sec: int):
-        start_ms = int(
-            (datetime.now(timezone.utc) - timedelta(seconds=depth_sec)).timestamp() * 1000
-        )
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-
-        total_ms = now_ms - start_ms
+    def _stream_range(self, start_ms: int, end_ms: int):
+        total_ms = end_ms - start_ms
         n = min(self._HISTORY_WORKERS, max(1, total_ms // 60_000))
         chunk_ms = total_ms // n
 
         ranges = []
         for i in range(n):
             r_start = start_ms + i * chunk_ms
-            r_end = now_ms if i == n - 1 else start_ms + (i + 1) * chunk_ms
+            r_end = end_ms if i == n - 1 else start_ms + (i + 1) * chunk_ms
             ranges.append((r_start, r_end))
 
         limiter = _RateLimiter(self._HISTORY_MAX_RPS)
@@ -194,6 +194,16 @@ class OkxExchange(ExchangeAdapter):
         for t in unique:
             if int(t["ts"]) >= start_ms:
                 yield self._normalize_trade(t)
+
+    def stream_history(self, depth_sec: int):
+        start_ms = int(
+            (datetime.now(timezone.utc) - timedelta(seconds=depth_sec)).timestamp() * 1000
+        )
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        yield from self._stream_range(start_ms, now_ms)
+
+    def stream_range(self, start_ms: int, end_ms: int):
+        yield from self._stream_range(start_ms, end_ms)
 
     def stream_prices(self):
         last_trade_id: str | None = None

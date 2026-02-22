@@ -1,11 +1,13 @@
 instrument: SOL-USDT-SWAP
 
-depth:
-  hour: 5
-  minute: 30
+backtest:
+  dataset: SOL-TRADE-OKX
+  # depth:
+  #   hour: 5
+  #   minute: 30
 
 crossma:
-  short_length: 10000
+  short_length: 1000
   long_length: 50000
 
 drawdown:
