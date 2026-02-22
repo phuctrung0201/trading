@@ -106,10 +106,20 @@ class BacktestConfig(Config):
 
 
 @dataclass
+class MeanRevConfig(Config):
+    lookback: int
+    entry_threshold: float
+    exit_threshold: float
+
+
+@dataclass
 class SetupConfig(Config):
     instrument: str = ""
     leverage: int = 1
-    strategy: str = "drawdown"
+    strategy: str = "drawdown_crossma"
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     crossma: CrossMAConfig = field(default_factory=CrossMAConfig)
     drawdown: DrawdownConfig = field(default_factory=DrawdownConfig)
+    meanrev: MeanRevConfig = field(default_factory=lambda: MeanRevConfig(
+        lookback=100, entry_threshold=2.0, exit_threshold=0.5,
+    ))

@@ -1,13 +1,19 @@
 instrument: SOL-USDT-SWAP
+strategy: drawdown_meanrev
 leverage: 1
 
 crossma:
-  short_length: 20000
-  long_length: 60000
+  short_length: 200
+  long_length: 1000
 
 drawdown:
   window: 100000
   threshold_scale_map:
     0.0: 1.0
-    0.02: 0.2
+    0.01: 0.1
     0.05: 0.01
+
+meanrev:
+  lookback: 100
+  entry_threshold: 2.0
+  exit_threshold: 0.5

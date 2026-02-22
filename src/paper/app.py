@@ -5,11 +5,11 @@ from src.clickhouse.measurement import OpsMeasurement
 
 
 class PaperApp:
-    def __init__(self, provider: AppProvider):
+    def __init__(self, provider: AppProvider, strategy):
         self.logger = provider.logger
         self.session_id = provider.session_id
         self.exchange = provider.okx_exchange
-        self.strategy = provider.strategy
+        self.strategy = strategy
         self.recorder = provider.recorder
         self.clickhouse_client = provider.clickhouse_client
 

@@ -13,6 +13,7 @@ class TradeMeasurement:
     long_ema: float | None = None
     close_price: float | None = None
     exposure_ratio: float = 1.0
+    zscore: float | None = None
 
     def to_dict(self) -> dict:
         result = {
@@ -29,6 +30,8 @@ class TradeMeasurement:
             result["long_ema"] = float(self.long_ema)
         if self.close_price is not None:
             result["close_price"] = float(self.close_price)
+        if self.zscore is not None:
+            result["zscore"] = float(self.zscore)
         return result
 
 
@@ -49,6 +52,7 @@ class TradeEventMeasurement:
     pnl: float | None = None
     signal: str | None = None
     reason: str | None = None
+    zscore: float | None = None
 
     def to_dict(self) -> dict:
         result = {
@@ -74,6 +78,8 @@ class TradeEventMeasurement:
             result["signal"] = self.signal
         if self.reason is not None:
             result["reason"] = self.reason
+        if self.zscore is not None:
+            result["zscore"] = float(self.zscore)
         return result
 
 

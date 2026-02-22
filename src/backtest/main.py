@@ -36,15 +36,30 @@ def main():
         setup_name=args.setup, instrument=setup.instrument,
         strategy=setup.strategy,
     )
-    provider.strategy.bootstrap(
-        exchange=provider.simulator,
-        short_length=setup.crossma.short_length,
-        long_length=setup.crossma.long_length,
-        window=setup.drawdown.window,
-        threshold_scale_map=setup.drawdown.threshold_scale_map,
-    )
 
-    app = BacktestApp(provider)
+    if setup.strategy == "drawdown_meanrev":
+        strategy = provider.drawdown_meanrev
+        strategy.bootstrap(
+            exchange=provider.simulator,
+            short_length=setup.crossma.short_length,
+            long_length=setup.crossma.long_length,
+            window=setup.drawdown.window,
+            threshold_scale_map=setup.drawdown.threshold_scale_map,
+            lookback=setup.meanrev.lookback,
+            entry_threshold=setup.meanrev.entry_threshold,
+            exit_threshold=setup.meanrev.exit_threshold,
+        )
+    else:
+        strategy = provider.drawdown_crossma
+        strategy.bootstrap(
+            exchange=provider.simulator,
+            short_length=setup.crossma.short_length,
+            long_length=setup.crossma.long_length,
+            window=setup.drawdown.window,
+            threshold_scale_map=setup.drawdown.threshold_scale_map,
+        )
+
+    app = BacktestApp(provider, strategy)
     logger = app.logger
 
     try:

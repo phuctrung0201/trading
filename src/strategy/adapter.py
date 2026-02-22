@@ -222,6 +222,7 @@ class StrategyAdapter:
         signal: str | None = None,
         reason: str | None = None,
         drawdown: float | None = None,
+        zscore: float | None = None,
     ):
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
@@ -246,6 +247,7 @@ class StrategyAdapter:
             pnl=pnl,
             signal=signal,
             reason=reason,
+            zscore=zscore,
         )
         self.recorder.record(event_measurement)
 
@@ -290,7 +292,8 @@ class StrategyAdapter:
         return None
 
     def _emit_trade_measurement(self, trade: MarketTrade, result: SignalResult,
-                                drawdown: float | None = None):
+                                drawdown: float | None = None,
+                                zscore: float | None = None):
         self._last_close_price = trade.price
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
@@ -310,6 +313,7 @@ class StrategyAdapter:
             long_ema=result.long_ema,
             close_price=self._last_close_price,
             exposure_ratio=self._exposure_ratio,
+            zscore=zscore,
         )
         self.recorder.record(measurement)
 

@@ -22,6 +22,7 @@ _TRADE_EVENT_COLUMNS = [
     ("pnl", "Nullable(Float64)", pa.float64()),
     ("signal", "Nullable(String)", pa.string()),
     ("reason", "Nullable(String)", pa.string()),
+    ("zscore", "Nullable(Float64)", pa.float64()),
 ]
 
 _OPS_COLUMNS = [
