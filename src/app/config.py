@@ -103,6 +103,8 @@ class DrawdownConfig(Config):
 class BacktestConfig(Config):
     dataset: str | None = None
     depth: DepthConfig | None = None
+    fee_rate: float = 0.0
+    initial_equity: float = 100.0
 
 
 @dataclass

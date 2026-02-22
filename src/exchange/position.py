@@ -4,11 +4,14 @@ from src.exchange.dto import Position
 class PositionTracker:
     """In-memory position and equity tracking."""
 
-    def __init__(self, initial_equity: float = 100.0):
+    def __init__(self, initial_equity: float = 100.0, fee_rate: float = 0.0):
         self.asset = initial_equity
         self.position: Position | None = None
         self._last_price: float = 0.0
         self._equity_at_open: float = 0.0
+        self._fee_rate = fee_rate
+        self.total_fees: float = 0.0
+        self.last_fee: float = 0.0
 
     def set_price(self, price: float):
         self._last_price = price
@@ -32,11 +35,21 @@ class PositionTracker:
         fill_price = position.price if position.price is not None else self._last_price
         filled = Position(side=position.side, size=position.size, price=fill_price)
         self.position = filled
+        fee = position.size * self._fee_rate
+        self.asset -= fee
+        self.total_fees += fee
+        self.last_fee = fee
         return filled
 
     def close(self) -> float:
         pnl = self.unrealized_pnl()
-        self.asset += pnl
+        fee = 0.0
+        if self.position is not None and self.position.price and self.position.price > 0:
+            quantity = self.position.size / self.position.price
+            fee = quantity * self._last_price * self._fee_rate
+        self.asset += pnl - fee
+        self.total_fees += fee
+        self.last_fee = fee
         self.position = None
         self._equity_at_open = 0.0
         return pnl

@@ -6,8 +6,8 @@ from src.exchange.position import PositionTracker
 class SimulateExchange(ExchangeAdapter):
     """Backtesting: delegates everything to PositionTracker."""
 
-    def __init__(self, initial_equity: float = 100.0):
-        self._tracker = PositionTracker(initial_equity)
+    def __init__(self, initial_equity: float = 100.0, fee_rate: float = 0.0):
+        self._tracker = PositionTracker(initial_equity, fee_rate=fee_rate)
 
     def set_price(self, price: float):
         self._tracker.set_price(price)
@@ -33,3 +33,11 @@ class SimulateExchange(ExchangeAdapter):
 
     def unrealized_pnl(self) -> float:
         return self._tracker.unrealized_pnl()
+
+    @property
+    def total_fees(self) -> float:
+        return self._tracker.total_fees
+
+    @property
+    def last_fee(self) -> float:
+        return self._tracker.last_fee

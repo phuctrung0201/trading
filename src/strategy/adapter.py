@@ -208,6 +208,10 @@ class StrategyAdapter:
         signal = self.compute_signal(short_ema, long_ema)
         return SignalResult(signal=signal, short_ema=short_ema, long_ema=long_ema)
 
+    def _last_fee(self) -> float | None:
+        fee = getattr(self.exchange, "last_fee", None)
+        return fee if fee and fee > 0 else None
+
     @abstractmethod
     def compute_signal(self, short_ema: float, long_ema: float) -> str | None:
         raise NotImplementedError
@@ -223,6 +227,7 @@ class StrategyAdapter:
         reason: str | None = None,
         drawdown: float | None = None,
         zscore: float | None = None,
+        fee: float | None = None,
     ):
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
@@ -248,6 +253,7 @@ class StrategyAdapter:
             signal=signal,
             reason=reason,
             zscore=zscore,
+            fee=fee,
         )
         self.recorder.record(event_measurement)
 

@@ -78,6 +78,7 @@ class DrawdownStrategy(StrategyAdapter):
                     signal=result.signal,
                     reason=f"signal flip to {result.signal}",
                     drawdown=drawdown,
+                    fee=self._last_fee(),
                 )
                 self._current_position = None
                 self._exposure_ratio = 1.0
@@ -103,6 +104,7 @@ class DrawdownStrategy(StrategyAdapter):
                         signal=result.signal,
                         reason=f"EMA crossover {result.signal} scale={scale:.4f}",
                         drawdown=drawdown,
+                        fee=self._last_fee(),
                     )
                 else:
                     self._logger.error(
@@ -144,6 +146,7 @@ class DrawdownStrategy(StrategyAdapter):
                     fill_price=self._current_position.price,
                     reason=f"drawdown scale {self._exposure_ratio:.4f} -> {scale:.4f}",
                     drawdown=drawdown,
+                    fee=self._last_fee(),
                 )
             else:
                 self._logger.error(
@@ -213,6 +216,7 @@ class DrawdownMeanRevStrategy(DrawdownStrategy):
                 reason=f"z={z:.4f} reverted",
                 drawdown=drawdown,
                 zscore=z,
+                fee=self._last_fee(),
             )
             self._current_position = None
             self._exposure_ratio = 1.0
@@ -236,6 +240,7 @@ class DrawdownMeanRevStrategy(DrawdownStrategy):
                     reason=f"signal flip to {signal} z={z:.4f}",
                     drawdown=drawdown,
                     zscore=z,
+                    fee=self._last_fee(),
                 )
                 self._current_position = None
                 self._exposure_ratio = 1.0
@@ -262,6 +267,7 @@ class DrawdownMeanRevStrategy(DrawdownStrategy):
                         reason=f"z={z:.4f} scale={scale:.4f}",
                         drawdown=drawdown,
                         zscore=z,
+                        fee=self._last_fee(),
                     )
                 else:
                     self._logger.error(
@@ -297,6 +303,7 @@ class DrawdownMeanRevStrategy(DrawdownStrategy):
                     reason=f"drawdown scale {self._exposure_ratio:.4f} -> {scale:.4f}",
                     drawdown=drawdown,
                     zscore=z,
+                    fee=self._last_fee(),
                 )
             else:
                 self._logger.error(

@@ -3,6 +3,7 @@ import argparse
 from src.app.config import load_config, SetupConfig
 from src.app.provider import AppProvider
 from src.backtest.app import BacktestApp
+from src.exchange.simulator import SimulateExchange
 
 
 def parse_args():
@@ -28,6 +29,12 @@ def main():
     args = parse_args()
     provider = AppProvider()
     setup = load_config("backtest", args.setup, SetupConfig)
+
+    bt = setup.backtest
+    provider.simulator = SimulateExchange(
+        initial_equity=bt.initial_equity,
+        fee_rate=bt.fee_rate,
+    )
 
     provider.okx_exchange.bootstrap(
         instrument=setup.instrument, leverage=setup.leverage,
@@ -79,6 +86,7 @@ def main():
             logger.warning("No trades returned; strategy ack did not run")
         logger.info(f"Backtest session_id {app.session_id}")
         logger.info(f"Final equity={app.exchange.get_equity():.4f}")
+        logger.info(f"Total fees={app.exchange.total_fees:.4f}")
     finally:
         if provider.clickhouse_client is not None:
             provider.clickhouse_client.close()

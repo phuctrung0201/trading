@@ -53,6 +53,7 @@ class TradeEventMeasurement:
     signal: str | None = None
     reason: str | None = None
     zscore: float | None = None
+    fee: float | None = None
 
     def to_dict(self) -> dict:
         result = {
@@ -80,6 +81,8 @@ class TradeEventMeasurement:
             result["reason"] = self.reason
         if self.zscore is not None:
             result["zscore"] = float(self.zscore)
+        if self.fee is not None:
+            result["fee"] = float(self.fee)
         return result
 
 
