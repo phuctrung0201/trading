@@ -164,14 +164,25 @@ drawdown:
 
 ## Usage
 
+### Ingest a Dataset
+
+Fetch trades from OKX for a time range and store them in ClickHouse under a named dataset. Backtest configs can reference the dataset name to replay from stored data instead of fetching live.
+
+```bash
+make ingest name=SOL-TRADE-OKX instrument=SOL-USDT-SWAP \
+  start=2026-01-01T00:00:00Z end=2026-02-22T00:00:00Z
+```
+
+If the dataset name already exists, existing data is deleted and re-ingested.
+
 ### Backtest
 
 ```bash
-make backtest            # run all configs in config/backtest/
-make backtest-one SETUP=sol-drawdown   # run a single setup
+make backtest setup=sol-drawdown   # run a single setup
+make backtest-all                  # run all configs in config/backtest/
 ```
 
-Downloads trade history from OKX, runs the drawdown strategy with simulated execution, and records metrics to ClickHouse.
+When a backtest config specifies `backtest.dataset`, trades are read from ClickHouse. When it specifies `backtest.depth`, trades are fetched live from OKX. Metrics are recorded to ClickHouse in both modes.
 
 ### Paper Trading
 
@@ -186,17 +197,10 @@ Connects to OKX (demo mode by default), preloads recent trade history for strate
 
 ### Observability (ClickHouse + Grafana)
 
-Start the metrics stack:
-
 ```bash
-make monitor
-```
-
-Stop or tail logs:
-
-```bash
-make monitor-down
-make monitor-logs
+make monitor             # start ClickHouse + Grafana
+make monitor-logs        # tail container logs
+make monitor-down        # stop the stack
 ```
 
 This brings up:
