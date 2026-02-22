@@ -1,4 +1,4 @@
-instrument: SOL-USDT-SWAP
+instrument: ETH-USDT-SWAP
 
 depth:
   hour: 5
@@ -12,5 +12,5 @@ drawdown:
   window: 100000
   threshold_scale_map:
     0.0: 1.0
-    0.01: 0.2
+    0.02: 0.2
     0.05: 0.01
