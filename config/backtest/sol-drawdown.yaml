@@ -21,6 +21,6 @@ drawdown:
     0.05: 0.01
 
 meanrev:
-  lookback: 40000
+  lookback: 50000
   entry_threshold: 2.0
   exit_threshold: 0.5

@@ -115,6 +115,43 @@ class MeanRevConfig(Config):
 
 
 @dataclass
+class UniverseConfig(Config):
+    quote: str = "USDT"
+    type: str = "SWAP"
+    min_daily_volume_usd: float = 10_000_000
+
+
+@dataclass
+class ScreeningConfig(Config):
+    bucket_interval: str = "5m"
+    lookback_hours: int = 6
+    sma_length: int = 72
+
+
+@dataclass
+class RankingWeightsConfig(Config):
+    adf_score: float = 0.4
+    hurst_score: float = 0.4
+    half_life_score: float = 0.2
+
+
+@dataclass
+class RankingConfig(Config):
+    adf_pvalue_max: float = 0.05
+    hurst_max: float = 0.5
+    half_life_min: float = 10
+    half_life_max: float = 5000
+    weights: RankingWeightsConfig = field(default_factory=RankingWeightsConfig)
+
+
+@dataclass
+class PortfolioConfig(Config):
+    universe: UniverseConfig = field(default_factory=UniverseConfig)
+    screening: ScreeningConfig = field(default_factory=ScreeningConfig)
+    ranking: RankingConfig = field(default_factory=RankingConfig)
+
+
+@dataclass
 class SetupConfig(Config):
     instrument: str = ""
     leverage: int = 1

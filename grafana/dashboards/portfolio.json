@@ -1,0 +1,313 @@
+{
+  "uid": "portfolio-scanner",
+  "title": "Portfolio Scanner",
+  "tags": ["trading", "portfolio"],
+  "timezone": "utc",
+  "editable": true,
+  "refresh": "",
+  "time": { "from": "now-30d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "session_id",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "query": {
+          "queryType": "sql",
+          "rawSql": "SELECT session_id FROM trading.portfolio_session ORDER BY started_at DESC"
+        },
+        "sort": 0,
+        "multi": true,
+        "includeAll": false,
+        "label": "Session",
+        "current": {},
+        "refresh": 1,
+        "definition": "SELECT session_id FROM trading.portfolio_session ORDER BY started_at DESC"
+      },
+      {
+        "name": "instrument",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "query": {
+          "queryType": "sql",
+          "rawSql": "SELECT DISTINCT instrument FROM trading.portfolio_screen ORDER BY instrument"
+        },
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "label": "Instrument",
+        "current": {},
+        "refresh": 1,
+        "definition": "SELECT DISTINCT instrument FROM trading.portfolio_screen ORDER BY instrument"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Universe Size",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT universe_size FROM trading.portfolio_session WHERE session_id IN ($session_id) ORDER BY started_at DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Passed",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT passed_count FROM trading.portfolio_session WHERE session_id IN ($session_id) ORDER BY started_at DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Pass Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT if(universe_size > 0, round(passed_count * 100.0 / universe_size, 1), 0) AS pass_rate FROM trading.portfolio_session WHERE session_id IN ($session_id) ORDER BY started_at DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 5 }, { "color": "green", "value": 15 }] }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT status FROM trading.portfolio_session WHERE session_id IN ($session_id) ORDER BY started_at DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "SUCCESS": { "color": "green", "text": "SUCCESS" },
+                "FAILED": { "color": "red", "text": "FAILED" },
+                "RUNNING": { "color": "yellow", "text": "RUNNING" }
+              }
+            }
+          ],
+          "thresholds": { "steps": [{ "color": "blue", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Rankings",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT rank, instrument, composite_score, adf_pvalue, hurst, half_life, volatility FROM trading.portfolio_ranking WHERE session_id IN ($session_id) ORDER BY rank ASC",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "filterable": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "composite_score" }, "properties": [{ "id": "decimals", "value": 4 }] },
+          { "matcher": { "id": "byName", "options": "adf_pvalue" }, "properties": [{ "id": "decimals", "value": 4 }] },
+          { "matcher": { "id": "byName", "options": "hurst" }, "properties": [{ "id": "decimals", "value": 4 }] },
+          { "matcher": { "id": "byName", "options": "half_life" }, "properties": [{ "id": "decimals", "value": 1 }] },
+          { "matcher": { "id": "byName", "options": "volatility" }, "properties": [{ "id": "decimals", "value": 4 }] }
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "title": "Screening",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 14 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT instrument, if(passed = 1, 'PASS', 'FAIL') AS status, adf_stat, adf_pvalue, hurst, half_life, volatility, daily_volume, fail_reason FROM trading.portfolio_screen WHERE session_id IN ($session_id) ORDER BY passed DESC, instrument ASC",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "filterable": true } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "status" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "PASS": { "color": "green", "text": "PASS" },
+                      "FAIL": { "color": "red", "text": "FAIL" }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          },
+          { "matcher": { "id": "byName", "options": "adf_stat" }, "properties": [{ "id": "decimals", "value": 4 }] },
+          { "matcher": { "id": "byName", "options": "adf_pvalue" }, "properties": [{ "id": "decimals", "value": 4 }] },
+          { "matcher": { "id": "byName", "options": "hurst" }, "properties": [{ "id": "decimals", "value": 4 }] },
+          { "matcher": { "id": "byName", "options": "half_life" }, "properties": [{ "id": "decimals", "value": 1 }] },
+          { "matcher": { "id": "byName", "options": "volatility" }, "properties": [{ "id": "decimals", "value": 4 }] },
+          { "matcher": { "id": "byName", "options": "daily_volume" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 0 }] }
+        ]
+      }
+    },
+    {
+      "id": 20,
+      "title": "ADF p-value History",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT s.started_at AS time, sc.instrument, sc.adf_pvalue FROM trading.portfolio_screen AS sc INNER JOIN trading.portfolio_session AS s ON sc.session_id = s.session_id WHERE sc.instrument IN ($instrument) AND sc.adf_pvalue IS NOT NULL AND s.started_at >= $__fromTime AND s.started_at <= $__toTime ORDER BY s.started_at",
+          "refId": "A",
+          "format": 0
+        }
+      ],
+      "transformations": [
+        { "id": "renameByRegex", "options": { "regex": "(.+) (.+)", "renamePattern": "$2" } }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 4,
+          "custom": { "lineWidth": 2, "pointSize": 5, "showPoints": "always", "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.05 }] },
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Hurst Exponent History",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT s.started_at AS time, sc.instrument, sc.hurst FROM trading.portfolio_screen AS sc INNER JOIN trading.portfolio_session AS s ON sc.session_id = s.session_id WHERE sc.instrument IN ($instrument) AND sc.hurst IS NOT NULL AND s.started_at >= $__fromTime AND s.started_at <= $__toTime ORDER BY s.started_at",
+          "refId": "A",
+          "format": 0
+        }
+      ],
+      "transformations": [
+        { "id": "renameByRegex", "options": { "regex": "(.+) (.+)", "renamePattern": "$2" } }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 4,
+          "custom": { "lineWidth": 2, "pointSize": 5, "showPoints": "always", "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.5 }] },
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Half-Life History",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT s.started_at AS time, sc.instrument, sc.half_life FROM trading.portfolio_screen AS sc INNER JOIN trading.portfolio_session AS s ON sc.session_id = s.session_id WHERE sc.instrument IN ($instrument) AND sc.half_life IS NOT NULL AND s.started_at >= $__fromTime AND s.started_at <= $__toTime ORDER BY s.started_at",
+          "refId": "A",
+          "format": 0
+        }
+      ],
+      "transformations": [
+        { "id": "renameByRegex", "options": { "regex": "(.+) (.+)", "renamePattern": "$2" } }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "custom": { "lineWidth": 2, "pointSize": 5, "showPoints": "always", "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 10 }, { "color": "red", "value": 5000 }] },
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 30,
+      "title": "Session History",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT started_at, session_id, status, universe_size, passed_count, if(finished_at IS NOT NULL, dateDiff('second', started_at, finished_at), NULL) AS duration_sec, error_message FROM trading.portfolio_session WHERE started_at >= $__fromTime AND started_at <= $__toTime ORDER BY started_at DESC",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "filterable": true } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "status" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": { "color": "green", "text": "SUCCESS" },
+                      "FAILED": { "color": "red", "text": "FAILED" },
+                      "RUNNING": { "color": "yellow", "text": "RUNNING" }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          },
+          { "matcher": { "id": "byName", "options": "duration_sec" }, "properties": [{ "id": "unit", "value": "s" }] }
+        ]
+      }
+    }
+  ],
+  "schemaVersion": 39
+}

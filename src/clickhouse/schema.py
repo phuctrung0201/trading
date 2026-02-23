@@ -54,18 +54,68 @@ _MARKET_TRADE_COLUMNS = [
     ("side", "String", pa.string()),
 ]
 
+_PORTFOLIO_SESSION_COLUMNS = [
+    ("session_id", "String", pa.string()),
+    ("started_at", "DateTime64(3, 'UTC')", pa.timestamp("ms", tz="UTC")),
+    ("finished_at", "Nullable(DateTime64(3, 'UTC'))", pa.timestamp("ms", tz="UTC")),
+    ("status", "String", pa.string()),
+    ("config_name", "String", pa.string()),
+    ("universe_size", "UInt32", pa.uint32()),
+    ("passed_count", "UInt32", pa.uint32()),
+    ("error_message", "Nullable(String)", pa.string()),
+]
+
+_PORTFOLIO_SCREEN_COLUMNS = [
+    ("session_id", "String", pa.string()),
+    ("instrument", "String", pa.string()),
+    ("adf_stat", "Nullable(Float64)", pa.float64()),
+    ("adf_pvalue", "Nullable(Float64)", pa.float64()),
+    ("hurst", "Nullable(Float64)", pa.float64()),
+    ("half_life", "Nullable(Float64)", pa.float64()),
+    ("volatility", "Nullable(Float64)", pa.float64()),
+    ("daily_volume", "Float64", pa.float64()),
+    ("passed", "UInt8", pa.uint8()),
+    ("fail_reason", "Nullable(String)", pa.string()),
+]
+
+_PORTFOLIO_RANKING_COLUMNS = [
+    ("session_id", "String", pa.string()),
+    ("instrument", "String", pa.string()),
+    ("rank", "UInt32", pa.uint32()),
+    ("composite_score", "Float64", pa.float64()),
+    ("adf_pvalue", "Float64", pa.float64()),
+    ("hurst", "Float64", pa.float64()),
+    ("half_life", "Float64", pa.float64()),
+    ("volatility", "Float64", pa.float64()),
+]
+
 TABLES: dict[str, dict] = {
     "trade_event": {
         "columns": _TRADE_EVENT_COLUMNS,
         "order_by": "(session_id, timestamp)",
+        "partition_by": "toDate(timestamp)",
     },
     "ops": {
         "columns": _OPS_COLUMNS,
         "order_by": "(session_id, timestamp)",
+        "partition_by": "toDate(timestamp)",
     },
     "market_trade": {
         "columns": _MARKET_TRADE_COLUMNS,
         "order_by": "(dataset, timestamp)",
+        "partition_by": "toDate(timestamp)",
+    },
+    "portfolio_session": {
+        "columns": _PORTFOLIO_SESSION_COLUMNS,
+        "order_by": "(session_id)",
+    },
+    "portfolio_screen": {
+        "columns": _PORTFOLIO_SCREEN_COLUMNS,
+        "order_by": "(session_id, instrument)",
+    },
+    "portfolio_ranking": {
+        "columns": _PORTFOLIO_RANKING_COLUMNS,
+        "order_by": "(session_id, rank)",
     },
 }
 
@@ -78,11 +128,13 @@ def _create_ddl(database: str, table: str, spec: dict) -> str:
     col_defs = ",\n    ".join(
         f"{name} {ch_type}" for name, ch_type, _ in spec["columns"]
     )
+    partition = spec.get("partition_by")
+    partition_clause = f"PARTITION BY {partition}\n" if partition else ""
     return (
         f"CREATE TABLE IF NOT EXISTS {database}.{table} (\n"
         f"    {col_defs}\n"
         f") ENGINE = MergeTree()\n"
-        f"PARTITION BY toDate(timestamp)\n"
+        f"{partition_clause}"
         f"ORDER BY {spec['order_by']}\n"
     )
 

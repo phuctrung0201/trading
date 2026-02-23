@@ -28,6 +28,9 @@ backtest-all:
 		python -m src.backtest.main --setup "$$setup"; \
 	done
 
+portfolio:
+	python -m src.portfolio.main
+
 ingest:
 	python -m src.ingest.main --name $(name) --instrument $(instrument) --start $(start) --end $(end)
 

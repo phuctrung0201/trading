@@ -1,6 +1,4 @@
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -10,23 +8,7 @@ from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade, Position, OpenResult
 from src.exchange.position import PositionTracker
 from src.okx.auth import OkxAuth, _BASE_URL
-
-
-class _RateLimiter:
-    """Thread-safe token-bucket rate limiter."""
-
-    def __init__(self, rps: float):
-        self._min_interval = 1.0 / rps
-        self._lock = threading.Lock()
-        self._last = 0.0
-
-    def wait(self):
-        with self._lock:
-            now = time.monotonic()
-            delay = self._min_interval - (now - self._last)
-            if delay > 0:
-                time.sleep(delay)
-            self._last = time.monotonic()
+from src.okx.pool import OkxClientPool
 
 
 class OkxExchange(ExchangeAdapter):
@@ -37,6 +19,7 @@ class OkxExchange(ExchangeAdapter):
 
     def __init__(self, okx_client, logger=None):
         self._auth: OkxAuth = okx_client.auth
+        self._pool: OkxClientPool = okx_client.pool
         self._trading = okx_client.trading
         self._account = okx_client.account
         self._logger = logger
@@ -139,29 +122,38 @@ class OkxExchange(ExchangeAdapter):
             raise RuntimeError(f"Instrument not found: {self._instrument}")
         return data[0]
 
-    _HISTORY_WORKERS = 4
-    _HISTORY_MAX_RPS = 8
-
     def _log(self, msg: str):
         if self._logger is not None:
             self._logger.info(msg)
 
-    def _fetch_range(self, range_start_ms: int, range_end_ms: int,
-                     limiter: "_RateLimiter") -> list[dict]:
-        """Fetch all history trades within a time range, paging backwards."""
+    def _fetch_range(self, pool: OkxClientPool,
+                     range_spec: tuple[int, int, str, int]) -> list[dict]:
+        """Fetch all history trades within a time range, paging backwards.
+
+        Each page request goes through the shared pool so rate limiting
+        and concurrency are handled centrally.
+        """
+        range_start_ms, range_end_ms, inst_id, chunk_idx = range_spec
         trades: list[dict] = []
         cursor = str(range_end_ms)
         batch = 0
         while True:
-            limiter.wait()
-            raw = self._history_trades(limit=100, after=cursor, type_param=2)
+            raw = pool.public_get(
+                "/api/v5/market/history-trades",
+                params={
+                    "instId": inst_id,
+                    "limit": "100",
+                    "after": cursor,
+                    "type": "2",
+                },
+            )
             if not raw:
                 break
             batch += 1
             trades.extend(raw)
             oldest_ts = int(raw[-1]["ts"])
             self._log(
-                f"fetch_range batch={batch} got={len(raw)} "
+                f"fetch_range chunk={chunk_idx} batch={batch} got={len(raw)} "
                 f"range=[{range_start_ms}..{range_end_ms}] oldest_ts={oldest_ts} total={len(trades)}"
             )
             if oldest_ts <= range_start_ms or len(raw) < 100:
@@ -173,29 +165,21 @@ class OkxExchange(ExchangeAdapter):
 
     def _stream_range(self, start_ms: int, end_ms: int):
         total_ms = end_ms - start_ms
-        n = min(self._HISTORY_WORKERS, max(1, total_ms // 60_000))
+        n = min(self._pool.pool_size, max(1, total_ms // 60_000))
         chunk_ms = total_ms // n
 
-        ranges = []
+        range_specs = []
         for i in range(n):
             r_start = start_ms + i * chunk_ms
             r_end = end_ms if i == n - 1 else start_ms + (i + 1) * chunk_ms
-            ranges.append((r_start, r_end))
+            range_specs.append((r_start, r_end, self._instrument, i))
 
-        self._log(f"stream_range workers={n} chunks={len(ranges)}")
-        limiter = _RateLimiter(self._HISTORY_MAX_RPS)
+        self._log(f"stream_range workers={n} chunks={len(range_specs)}")
         all_trades: list[dict] = []
-
-        with ThreadPoolExecutor(max_workers=n) as pool:
-            futures = {
-                pool.submit(self._fetch_range, r_start, r_end, limiter): i
-                for i, (r_start, r_end) in enumerate(ranges)
-            }
-            for future in as_completed(futures):
-                chunk_trades = future.result()
-                chunk_idx = futures[future]
-                self._log(f"stream_range chunk={chunk_idx} fetched={len(chunk_trades)}")
-                all_trades.extend(chunk_trades)
+        chunk_results = self._pool.map(self._fetch_range, range_specs, max_workers=n)
+        for idx, chunk_trades in enumerate(chunk_results):
+            self._log(f"stream_range chunk={idx} fetched={len(chunk_trades)}")
+            all_trades.extend(chunk_trades)
 
         seen: set[str] = set()
         unique: list[dict] = []
