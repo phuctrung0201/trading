@@ -1,4 +1,10 @@
-.PHONY: paper paper-stop paper-status paper-logs backtest backtest-all ingest monitor monitor-down monitor-logs
+.PHONY: migrate migrate-dry paper paper-stop paper-status paper-logs backtest backtest-all ingest monitor monitor-down monitor-logs
+
+migrate:
+	python -m src.migration.main
+
+migrate-dry:
+	python -m src.migration.main --dry-run
 
 paper:
 	@mkdir -p .supervisor
