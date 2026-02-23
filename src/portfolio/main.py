@@ -34,8 +34,12 @@ def main():
                 password=ch_cfg.password,
                 app_logger=logger,
             )
-        except Exception:
-            logger.warning("ClickHouse unavailable, results will not be stored")
+        except Exception as exc:
+            logger.warning(
+                f"ClickHouse unavailable, results will not be stored "
+                f"url={ch_cfg.url} database={ch_cfg.database}: {exc}",
+                exc_info=True,
+            )
 
     portfolio_cfg = load_config("portfolio", "scanner", PortfolioConfig)
 

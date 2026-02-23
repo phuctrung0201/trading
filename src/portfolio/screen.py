@@ -169,26 +169,46 @@ class Screener:
 
         try:
             adf_stat, adf_pvalue = _compute_adf(arr)
-        except Exception:
+        except Exception as exc:
             adf_stat, adf_pvalue = None, None
             failures.append("adf_error")
+            self._logger.warning(
+                f"_compute_adf failed instrument={inst.inst_id} "
+                f"data_points={len(arr)}: {exc}",
+                exc_info=True,
+            )
 
         try:
             hurst = _compute_hurst(arr)
-        except Exception:
+        except Exception as exc:
             hurst = None
             failures.append("hurst_error")
+            self._logger.warning(
+                f"_compute_hurst failed instrument={inst.inst_id} "
+                f"data_points={len(arr)}: {exc}",
+                exc_info=True,
+            )
 
         try:
             half_life = _compute_half_life(arr)
-        except Exception:
+        except Exception as exc:
             half_life = None
             failures.append("half_life_error")
+            self._logger.warning(
+                f"_compute_half_life failed instrument={inst.inst_id} "
+                f"data_points={len(arr)}: {exc}",
+                exc_info=True,
+            )
 
         try:
             volatility = _compute_volatility(arr, self._interval_sec)
-        except Exception:
+        except Exception as exc:
             volatility = None
+            self._logger.warning(
+                f"_compute_volatility failed instrument={inst.inst_id} "
+                f"data_points={len(arr)} interval_sec={self._interval_sec}: {exc}",
+                exc_info=True,
+            )
 
         if adf_pvalue is not None and adf_pvalue > self._cfg.adf_pvalue_max:
             failures.append(f"adf_pvalue={adf_pvalue:.4f}")

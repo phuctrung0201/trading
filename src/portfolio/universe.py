@@ -130,7 +130,9 @@ class UniverseFetcher:
                 )
             except Exception as exc:
                 self._logger.warning(
-                    f"Fetch failed {inst_id} cursor={cursor}: {exc}"
+                    f"_fetch_one failed inst_id={inst_id} cursor={cursor} "
+                    f"fetched_so_far={len(trades)}: {exc}",
+                    exc_info=True,
                 )
                 break
 

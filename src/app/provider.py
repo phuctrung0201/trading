@@ -45,8 +45,12 @@ class AppProvider:
                     app_logger=self.logger,
                 )
                 self.clickhouse_client = client
-            except Exception:
-                self.logger.warning("ClickHouse unavailable, recording disabled")
+            except Exception as exc:
+                self.logger.warning(
+                    f"ClickHouse unavailable, recording disabled "
+                    f"url={ch_cfg.url} database={ch_cfg.database}: {exc}",
+                    exc_info=True,
+                )
 
         self.recorder = ClickHouseRecorder(
             clickhouse_client=self.clickhouse_client,

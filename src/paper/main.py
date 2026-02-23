@@ -62,7 +62,9 @@ def main():
                     app.emit_tick_ops()
                 except Exception as exc:
                     logger.error(
-                        f"Strategy execution failed timestamp={trade.timestamp} price={trade.price}: {exc}"
+                        f"Strategy execution failed timestamp={trade.timestamp} "
+                        f"price={trade.price} total_processed={total}: {exc}",
+                        exc_info=True,
                     )
                     app.emit_error_ops(str(exc))
                     # Do not raise here to keep the paper trading process alive

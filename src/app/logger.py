@@ -12,14 +12,14 @@ class AppLogger:
     def info(self, message):
         self._logger.info(message)
 
-    def warn(self, message):
-        self._logger.warning(message)
+    def warn(self, message, exc_info=False):
+        self._logger.warning(message, exc_info=exc_info)
 
-    def warning(self, message):
-        self._logger.warning(message)
+    def warning(self, message, exc_info=False):
+        self._logger.warning(message, exc_info=exc_info)
 
-    def error(self, message):
-        self._logger.error(message)
+    def error(self, message, exc_info=False):
+        self._logger.error(message, exc_info=exc_info)
 
 
 def init_logger(log_level):

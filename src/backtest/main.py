@@ -76,9 +76,11 @@ def main():
             try:
                 app.exchange.set_price(trade.price)
                 app.strategy.ack(trade)
-            except Exception:
+            except Exception as exc:
                 logger.error(
-                    f"Strategy ack failed timestamp={trade.timestamp} price={trade.price}"
+                    f"Strategy ack failed timestamp={trade.timestamp} "
+                    f"price={trade.price} total_processed={total}: {exc}",
+                    exc_info=True,
                 )
                 raise
         logger.info(f"Backtest completed total_trades={total}")

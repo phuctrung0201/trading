@@ -55,7 +55,10 @@ class Pipeline:
             self._write_session(
                 session_id, started_at, "FAILED", error=str(exc),
             )
-            self._logger.error(f"Pipeline session {session_id} FAILED: {exc}")
+            self._logger.error(
+                f"Pipeline session {session_id} FAILED: {exc}",
+                exc_info=True,
+            )
             raise
 
         finally:

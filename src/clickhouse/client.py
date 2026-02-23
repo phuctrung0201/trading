@@ -91,7 +91,10 @@ class WriteBuffer:
             data = _rows_to_parquet_bytes(table, rows)
             self._client._send_parquet(table, data)
         except Exception as exc:
-            self._logger.error(f"WriteBuffer flush failed table={table} rows={len(rows)}: {exc}")
+            self._logger.error(
+                f"WriteBuffer flush failed table={table} rows={len(rows)}: {exc}",
+                exc_info=True,
+            )
         with self._count_lock:
             self._count -= len(rows)
 
@@ -173,7 +176,10 @@ class ClickHouseClient:
             resp.raise_for_status()
             self._logger.info(f"Parquet insert table={table} bytes={len(data)}")
         except Exception as exc:
-            self._logger.error(f"Parquet insert failed table={table}: {exc}")
+            self._logger.error(
+                f"Parquet insert failed table={table} bytes={len(data)}: {exc}",
+                exc_info=True,
+            )
 
     def _exec_strict(self, query: str):
         """Execute query, raise on failure."""

@@ -221,7 +221,13 @@ class OkxExchange(ExchangeAdapter):
                         continue
                     last_trade_id = tid
                     yield self._normalize_trade(t)
-            except Exception:
+            except Exception as exc:
+                if self._logger is not None:
+                    self._logger.warning(
+                        f"stream_prices failed instrument={self._instrument} "
+                        f"last_trade_id={last_trade_id}: {exc}",
+                        exc_info=True,
+                    )
                 time.sleep(1)
             time.sleep(0.2)
 
@@ -309,6 +315,13 @@ class OkxExchange(ExchangeAdapter):
                 return OpenResult(success=True, position=filled)
             except Exception as exc:
                 last_error = str(exc)
+                if self._logger is not None:
+                    self._logger.warning(
+                        f"open retry attempt={attempt+1}/{self.MAX_RETRIES} "
+                        f"instrument={self._instrument} side={side} "
+                        f"usd_size={usd_size:.4f}: {exc}",
+                        exc_info=True,
+                    )
                 if self._is_margin_error(last_error):
                     usd_size *= self.MARGIN_REDUCE
                 delay = min(30.0, 1.0 * (2 ** attempt))
@@ -322,7 +335,13 @@ class OkxExchange(ExchangeAdapter):
                 self._trading.close_position(instrument=self._instrument)
                 self._tracker.close()
                 return True
-            except Exception:
+            except Exception as exc:
+                if self._logger is not None:
+                    self._logger.warning(
+                        f"close retry attempt={attempt+1}/{self.MAX_RETRIES} "
+                        f"instrument={self._instrument} side={position.side}: {exc}",
+                        exc_info=True,
+                    )
                 delay = min(30.0, 1.0 * (2 ** attempt))
                 time.sleep(delay)
         return False
