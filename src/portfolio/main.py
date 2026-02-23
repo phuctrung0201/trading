@@ -34,7 +34,6 @@ def main():
                 password=ch_cfg.password,
                 app_logger=logger,
             )
-            ch_client.ensure_tables()
         except Exception:
             logger.warning("ClickHouse unavailable, results will not be stored")
 

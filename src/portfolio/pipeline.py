@@ -22,7 +22,7 @@ class Pipeline:
 
     def run(self) -> list[RankResult]:
         session_id = uuid.uuid4().hex
-        self._logger.info(f"Pipeline session={session_id}")
+        self._logger.info(f"Pipeline session {session_id}")
         started_at = _now_ms()
 
         self._write_session(session_id, started_at, "RUNNING")
@@ -48,14 +48,14 @@ class Pipeline:
             )
 
             self._print_summary(screen_results, rankings)
-            self._logger.info(f"Pipeline session={session_id} SUCCESS")
+            self._logger.info(f"Pipeline session {session_id} SUCCESS")
             return rankings
 
         except Exception as exc:
             self._write_session(
                 session_id, started_at, "FAILED", error=str(exc),
             )
-            self._logger.error(f"Pipeline session={session_id} FAILED: {exc}")
+            self._logger.error(f"Pipeline session {session_id} FAILED: {exc}")
             raise
 
         finally:

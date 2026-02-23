@@ -44,7 +44,6 @@ class AppProvider:
                     password=ch_cfg.password,
                     app_logger=self.logger,
                 )
-                client.ensure_tables()
                 self.clickhouse_client = client
             except Exception:
                 self.logger.warning("ClickHouse unavailable, recording disabled")

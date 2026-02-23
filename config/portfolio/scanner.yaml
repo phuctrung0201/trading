@@ -1,11 +1,11 @@
 universe:
   quote: USDT
   type: SWAP
-  min_24h_volume_usd: 100_000_000
+  min_24h_volume_usd: 10_000_000
 
 screening:
   bucket_interval: 5m
-  lookback_hours: 12
+  lookback_hours: 24
   sma_length: 12
   adf_pvalue_max: 0.05
   hurst_max: 0.5

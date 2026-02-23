@@ -8,7 +8,7 @@ import pyarrow.parquet as pq
 import requests
 
 from src.app.logger import AppLogger
-from src.clickhouse.schema import TABLES, TABLE_SCHEMAS, _create_ddl
+from src.clickhouse.schema import TABLE_SCHEMAS
 
 
 def _rows_to_parquet_bytes(table_name: str, rows: list[dict]) -> bytes:
@@ -137,40 +137,12 @@ class ClickHouseClient:
         self.password = password
         self._session = requests.Session()
         self._logger = app_logger
-        self._tables_created = False
         self.worker = WriteBuffer(
             client=self,
             buffer_size=_BUFFER_SIZE,
             flush_delay=_FLUSH_DELAY,
             app_logger=app_logger,
         )
-
-    def ensure_tables(self):
-        if self._tables_created:
-            return
-        for table, spec in TABLES.items():
-            self._exec_strict(_create_ddl(self.database, table, spec))
-            self._add_missing_columns(table, spec["columns"])
-        self._tables_created = True
-        self._logger.info("ClickHouseClient tables ensured")
-
-    def _add_missing_columns(self, table: str, columns: list[tuple]):
-        query = (f"SELECT name FROM system.columns "
-                 f"WHERE database = '{self.database}' AND table = '{table}'")
-        resp = self._session.post(
-            self.url,
-            params={"database": self.database, "user": self.user,
-                    "password": self.password, "default_format": "TabSeparated"},
-            data=query, timeout=10,
-        )
-        resp.raise_for_status()
-        existing = {line.strip() for line in resp.text.strip().splitlines() if line.strip()}
-        for col_name, ch_type, _ in columns:
-            if col_name not in existing:
-                alter = (f"ALTER TABLE {self.database}.{table} "
-                         f"ADD COLUMN IF NOT EXISTS {col_name} {ch_type}")
-                self._exec_strict(alter)
-                self._logger.info(f"Added column {table}.{col_name} {ch_type}")
 
     def write(self, table: str, row: dict):
         self.worker.queue(table, row)
