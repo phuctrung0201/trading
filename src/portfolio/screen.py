@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 from statsmodels.tsa.stattools import adfuller
 
-from src.app.config import ScreeningConfig, RankingConfig
+from src.app.config import ScreeningConfig
 from src.app.logger import AppLogger
 from src.portfolio.universe import Instrument, _parse_bucket_interval
 
@@ -126,16 +126,15 @@ def _compute_half_life(prices: np.ndarray) -> float | None:
     return float(-math.log(2) / lam)
 
 
-def _compute_volatility(prices: np.ndarray) -> float:
+def _compute_volatility(prices: np.ndarray, interval_sec: int) -> float:
     returns = np.diff(prices) / prices[:-1]
-    return float(np.std(returns, ddof=1) * math.sqrt(365 * 24))
+    buckets_per_year = (365 * 24 * 3600) / interval_sec
+    return float(np.std(returns, ddof=1) * math.sqrt(buckets_per_year))
 
 
 class Screener:
-    def __init__(self, screening_cfg: ScreeningConfig, ranking_cfg: RankingConfig,
-                 logger: AppLogger):
-        self._screening = screening_cfg
-        self._ranking = ranking_cfg
+    def __init__(self, screening_cfg: ScreeningConfig, logger: AppLogger):
+        self._cfg = screening_cfg
         self._logger = logger
         self._interval_sec = _parse_bucket_interval(screening_cfg.bucket_interval)
 
@@ -154,7 +153,7 @@ class Screener:
     def _screen_one(self, inst: Instrument) -> ScreenResult:
         prices = _bucket_prices(inst.trades, self._interval_sec)
 
-        min_points = self._screening.sma_length + 10
+        min_points = self._cfg.sma_length + 10
         if len(prices) < min_points:
             return ScreenResult(
                 instrument=inst.inst_id,
@@ -187,20 +186,20 @@ class Screener:
             failures.append("half_life_error")
 
         try:
-            volatility = _compute_volatility(arr)
+            volatility = _compute_volatility(arr, self._interval_sec)
         except Exception:
             volatility = None
 
-        if adf_pvalue is not None and adf_pvalue > self._ranking.adf_pvalue_max:
+        if adf_pvalue is not None and adf_pvalue > self._cfg.adf_pvalue_max:
             failures.append(f"adf_pvalue={adf_pvalue:.4f}")
-        if hurst is not None and hurst > self._ranking.hurst_max:
+        if hurst is not None and hurst > self._cfg.hurst_max:
             failures.append(f"hurst={hurst:.4f}")
         if half_life is None:
             if "half_life_error" not in failures:
                 failures.append("half_life=non_reverting")
-        elif half_life < self._ranking.half_life_min:
+        elif half_life < self._cfg.half_life_min:
             failures.append(f"half_life={half_life:.1f}<min")
-        elif half_life > self._ranking.half_life_max:
+        elif half_life > self._cfg.half_life_max:
             failures.append(f"half_life={half_life:.1f}>max")
 
         passed = len(failures) == 0

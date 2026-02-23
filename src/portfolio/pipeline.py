@@ -33,9 +33,7 @@ class Pipeline:
                 self._config.screening, self._logger,
             ).fetch()
 
-            screener = Screener(
-                self._config.screening, self._config.ranking, self._logger,
-            )
+            screener = Screener(self._config.screening, self._logger)
             screen_results = screener.screen(instruments)
             self._write_screen(session_id, screen_results)
 

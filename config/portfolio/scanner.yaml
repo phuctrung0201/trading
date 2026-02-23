@@ -1,18 +1,23 @@
 universe:
   quote: USDT
   type: SWAP
-  min_daily_volume_usd: 10_000_000
+  min_24h_volume_usd: 10_000_000
 
 screening:
   bucket_interval: 5m
   lookback_hours: 6
   sma_length: 72
+  adf_pvalue_max: 0.05
+  hurst_max: 0.5
+  half_life_min: 10
+  half_life_max: 5000
 
 ranking:
   adf_pvalue_max: 0.05
   hurst_max: 0.5
   half_life_min: 10
   half_life_max: 5000
+  top_n: 10
   weights:
     adf_score: 0.4
     hurst_score: 0.4

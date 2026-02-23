@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -8,8 +7,6 @@ from datetime import datetime, timezone
 from src.app.config import UniverseConfig, ScreeningConfig
 from src.app.logger import AppLogger
 from src.okx.pool import OkxClientPool
-
-_log = logging.getLogger("trading.app")
 
 
 class _Counter:
@@ -52,13 +49,13 @@ class UniverseFetcher:
         self._logger = logger
 
     def fetch(self) -> list[Instrument]:
-        instruments = self._discover()
-        self._logger.info(f"Universe discovered {len(instruments)} instruments")
+        raw = self._discover()
+        self._logger.info(f"Universe discovered {len(raw)} instruments")
 
-        instruments = self._filter_volume(instruments)
-        self._logger.info(f"Universe after volume filter: {len(instruments)}")
+        filtered = self._filter_volume(raw)
+        self._logger.info(f"Universe after volume filter: {len(filtered)}")
 
-        return self._fetch_trades(instruments)
+        return self._fetch_trades(filtered)
 
     def _discover(self) -> list[dict]:
         data = self._pool.public_get(
@@ -71,7 +68,7 @@ class UniverseFetcher:
             and d.get("state", "") == "live"
         ]
 
-    def _filter_volume(self, raw_instruments: list[dict]) -> list[dict]:
+    def _filter_volume(self, raw_instruments: list[dict]) -> list[tuple[str, float]]:
         tickers = self._pool.public_get(
             "/api/v5/market/tickers",
             params={"instType": self._cfg.type},
@@ -82,37 +79,36 @@ class UniverseFetcher:
             vol_usd = float(t.get("volCcy24h", "0"))
             vol_map[inst_id] = vol_usd
 
-        result = []
+        result: list[tuple[str, float]] = []
         for inst in raw_instruments:
             inst_id = inst["instId"]
             vol = vol_map.get(inst_id, 0.0)
-            if vol >= self._cfg.min_daily_volume_usd:
-                inst["_daily_volume_usd"] = vol
-                result.append(inst)
+            if vol >= self._cfg.min_24h_volume_usd:
+                result.append((inst_id, vol))
         return result
 
-    def _fetch_trades(self, instruments: list[dict]) -> list[Instrument]:
+    def _fetch_trades(self, instruments: list[tuple[str, float]]) -> list[Instrument]:
         lookback_ms = self._screening_cfg.lookback_hours * 3600 * 1000
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         start_ms = now_ms - lookback_ms
 
         specs = [
-            (inst["instId"], inst["_daily_volume_usd"], start_ms, now_ms)
-            for inst in instruments
+            (inst_id, vol, start_ms, now_ms)
+            for inst_id, vol in instruments
         ]
 
         total = len(specs)
         self._logger.info(f"Fetching trades for {total} instruments concurrently")
         counter = _Counter(total)
         results: list[Instrument] = self._pool.map(
-            lambda pool, s: self._fetch_one_instrument(pool, s, counter),
+            lambda pool, s: self._fetch_one(pool, s, counter),
             specs,
-            max_workers=len(specs),
+            max_workers=min(self._pool.pool_size, len(specs)),
         )
         return results
 
-    @staticmethod
-    def _fetch_one_instrument(
+    def _fetch_one(
+        self,
         pool: OkxClientPool,
         spec: tuple[str, float, int, int],
         counter: _Counter,
@@ -132,7 +128,10 @@ class UniverseFetcher:
                         "type": "2",
                     },
                 )
-            except Exception:
+            except Exception as exc:
+                self._logger.warning(
+                    f"Fetch failed {inst_id} cursor={cursor}: {exc}"
+                )
                 break
 
             if not data:
@@ -157,5 +156,5 @@ class UniverseFetcher:
 
         unique.sort(key=lambda t: int(t["ts"]))
         done = counter.increment()
-        _log.info(f"[{done}/{counter.total}] {inst_id}: {len(unique)} trades")
+        self._logger.info(f"[{done}/{counter.total}] {inst_id}: {len(unique)} trades")
         return Instrument(inst_id=inst_id, daily_volume_usd=vol, trades=unique)

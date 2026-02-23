@@ -45,6 +45,8 @@ def rank(passed: list[ScreenResult], cfg: RankingConfig) -> list[RankResult]:
         scored.append((score, s))
 
     scored.sort(key=lambda x: x[0], reverse=True)
+    if cfg.top_n > 0:
+        scored = scored[:cfg.top_n]
 
     results: list[RankResult] = []
     for i, (score, s) in enumerate(scored):

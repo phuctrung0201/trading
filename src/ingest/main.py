@@ -3,6 +3,7 @@ from datetime import datetime
 
 from src.app.provider import AppProvider
 from src.ingest.app import IngestApp
+from src.ingest.poller import IngestPoller
 
 
 def parse_args():
@@ -22,8 +23,20 @@ def _iso_to_ms(iso: str) -> int:
 def main():
     args = parse_args()
     provider = AppProvider()
-    provider.okx_exchange.bootstrap(instrument=args.instrument)
-    app = IngestApp(provider)
+
+    if provider.clickhouse_client is None:
+        raise RuntimeError("ClickHouse must be enabled for ingestion")
+
+    poller = IngestPoller(
+        pool=provider.okx_client.pool,
+        instrument=args.instrument,
+        logger=provider.logger,
+    )
+    app = IngestApp(
+        poller=poller,
+        clickhouse_client=provider.clickhouse_client,
+        logger=provider.logger,
+    )
 
     provider.logger.info(
         f"Ingest starting instrument={args.instrument} "

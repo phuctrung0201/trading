@@ -164,21 +164,25 @@ class OkxExchange(ExchangeAdapter):
         return trades
 
     def _stream_range(self, start_ms: int, end_ms: int):
-        total_ms = end_ms - start_ms
-        n = min(self._pool.pool_size, max(1, total_ms // 60_000))
-        chunk_ms = total_ms // n
-
+        one_hour_ms = 3_600_000
         range_specs = []
-        for i in range(n):
-            r_start = start_ms + i * chunk_ms
-            r_end = end_ms if i == n - 1 else start_ms + (i + 1) * chunk_ms
-            range_specs.append((r_start, r_end, self._instrument, i))
+        cursor = start_ms
+        idx = 0
+        while cursor < end_ms:
+            r_end = min(cursor + one_hour_ms, end_ms)
+            range_specs.append((cursor, r_end, self._instrument, idx))
+            cursor = r_end
+            idx += 1
 
-        self._log(f"stream_range workers={n} chunks={len(range_specs)}")
+        workers = min(self._pool.pool_size, len(range_specs))
+        self._log(f"stream_range workers={workers} chunks={len(range_specs)}")
+
         all_trades: list[dict] = []
-        chunk_results = self._pool.map(self._fetch_range, range_specs, max_workers=n)
-        for idx, chunk_trades in enumerate(chunk_results):
-            self._log(f"stream_range chunk={idx} fetched={len(chunk_trades)}")
+        chunk_results = self._pool.map(
+            self._fetch_range, range_specs, max_workers=workers,
+        )
+        for i, chunk_trades in enumerate(chunk_results):
+            self._log(f"stream_range chunk={i} fetched={len(chunk_trades)}")
             all_trades.extend(chunk_trades)
 
         seen: set[str] = set()
