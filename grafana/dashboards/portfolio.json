@@ -14,7 +14,7 @@
         "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
         "query": {
           "queryType": "sql",
-          "rawSql": "SELECT session_id FROM trading.portfolio_session ORDER BY started_at DESC"
+          "rawSql": "SELECT session_id FROM trading.portfolio_session FINAL WHERE status != 'RUNNING' ORDER BY started_at DESC"
         },
         "sort": 0,
         "multi": true,
@@ -22,7 +22,7 @@
         "label": "Session",
         "current": {},
         "refresh": 1,
-        "definition": "SELECT session_id FROM trading.portfolio_session ORDER BY started_at DESC"
+        "definition": "SELECT session_id FROM trading.portfolio_session FINAL WHERE status != 'RUNNING' ORDER BY started_at DESC"
       },
       {
         "name": "instrument",
@@ -51,7 +51,7 @@
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
-          "rawSql": "SELECT universe_size FROM trading.portfolio_session WHERE session_id IN ($session_id) ORDER BY started_at DESC LIMIT 1",
+          "rawSql": "SELECT universe_size FROM trading.portfolio_session WHERE session_id IN ($session_id) AND status != 'RUNNING' ORDER BY started_at DESC LIMIT 1",
           "refId": "A",
           "format": 1
         }
@@ -68,7 +68,7 @@
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
-          "rawSql": "SELECT passed_count FROM trading.portfolio_session WHERE session_id IN ($session_id) ORDER BY started_at DESC LIMIT 1",
+          "rawSql": "SELECT passed_count FROM trading.portfolio_session WHERE session_id IN ($session_id) AND status != 'RUNNING' ORDER BY started_at DESC LIMIT 1",
           "refId": "A",
           "format": 1
         }
@@ -85,7 +85,7 @@
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
-          "rawSql": "SELECT if(universe_size > 0, round(passed_count * 100.0 / universe_size, 1), 0) AS pass_rate FROM trading.portfolio_session WHERE session_id IN ($session_id) ORDER BY started_at DESC LIMIT 1",
+          "rawSql": "SELECT if(universe_size > 0, round(passed_count * 100.0 / universe_size, 1), 0) AS pass_rate FROM trading.portfolio_session WHERE session_id IN ($session_id) AND status != 'RUNNING' ORDER BY started_at DESC LIMIT 1",
           "refId": "A",
           "format": 1
         }
@@ -106,7 +106,7 @@
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
-          "rawSql": "SELECT status FROM trading.portfolio_session WHERE session_id IN ($session_id) ORDER BY started_at DESC LIMIT 1",
+          "rawSql": "SELECT status FROM trading.portfolio_session WHERE session_id IN ($session_id) AND status != 'RUNNING' ORDER BY started_at DESC LIMIT 1",
           "refId": "A",
           "format": 1
         }
@@ -277,7 +277,7 @@
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
-          "rawSql": "SELECT started_at, session_id, status, universe_size, passed_count, if(finished_at IS NOT NULL, dateDiff('second', started_at, finished_at), NULL) AS duration_sec, error_message FROM trading.portfolio_session WHERE started_at >= $__fromTime AND started_at <= $__toTime ORDER BY started_at DESC",
+          "rawSql": "SELECT started_at, session_id, status, universe_size, passed_count, if(finished_at IS NOT NULL, dateDiff('second', started_at, finished_at), NULL) AS duration_sec, error_message FROM trading.portfolio_session FINAL WHERE status != 'RUNNING' AND started_at >= $__fromTime AND started_at <= $__toTime ORDER BY started_at DESC",
           "refId": "A",
           "format": 1
         }

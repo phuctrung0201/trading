@@ -16,10 +16,10 @@ class ClickHouseRecorder(Recorder):
         self.setup_name: str = ""
         self.instrument: str = ""
         self.strategy: str = ""
-        self.indicator: str = "vwema"
+        self.indicator: str = "ema"
 
     def bootstrap(self, setup_name: str, instrument: str, strategy: str,
-                  indicator: str = "vwema"):
+                  indicator: str = "ema"):
         self.setup_name = setup_name
         self.instrument = instrument
         self.strategy = strategy

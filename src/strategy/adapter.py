@@ -9,7 +9,6 @@ from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import MarketTrade, Position
 from src.clickhouse.recorder import Recorder
 from src.clickhouse.measurement import TradeMeasurement, TradeEventMeasurement, OpsMeasurement
-from src.vwema.indicator import VWEMA
 
 
 @dataclass
@@ -28,14 +27,8 @@ class StrategyAdapter:
         self.recorder = recorder
         self._logger = logger
 
-    def bootstrap(self, exchange: ExchangeAdapter, short_length: int,
-                  long_length: int):
+    def bootstrap(self, exchange: ExchangeAdapter):
         self.exchange = exchange
-        self.short = int(short_length)
-        self.long = int(long_length)
-        self._short_ema = VWEMA(period=self.short)
-        self._long_ema = VWEMA(period=self.long)
-        self._tick_count: int = 0
         self._current_position: Position | None = None
         self._exposure_ratio: float = 1.0
         initial_equity = self.exchange.get_equity()
@@ -46,7 +39,6 @@ class StrategyAdapter:
         self._prev_equity: float = initial_equity
         self._last_reconcile_time: float = time.monotonic()
         self._last_close_price: float = 0.0
-        self._warmed_up: bool = False
         self._ts_fast_path: str | None = None
 
     def _mark_to_market(self):
@@ -184,37 +176,9 @@ class StrategyAdapter:
             return 0.0
         return (mean - risk_free_rate) / (variance ** 0.5) * (n ** 0.5)
 
-    def _signal(self, close: float, volume: float = 1.0) -> SignalResult:
-        self._tick_count += 1
-        self._short_ema.update(close, volume)
-        self._long_ema.update(close, volume)
-
-        if self._tick_count < self.long:
-            self._logger.info(
-                f"Warmup {self._tick_count}/{self.long}"
-            )
-            return SignalResult()
-
-        if not self._warmed_up:
-            self._warmed_up = True
-            self._logger.info(f"Warmup complete collected={self._tick_count}")
-
-        short_ema = self._short_ema.value
-        long_ema = self._long_ema.value
-
-        if short_ema is None or long_ema is None:
-            return SignalResult()
-
-        signal = self.compute_signal(short_ema, long_ema)
-        return SignalResult(signal=signal, short_ema=short_ema, long_ema=long_ema)
-
     def _last_fee(self) -> float | None:
         fee = getattr(self.exchange, "last_fee", None)
         return fee if fee and fee > 0 else None
-
-    @abstractmethod
-    def compute_signal(self, short_ema: float, long_ema: float) -> str | None:
-        raise NotImplementedError
 
     def _emit_event(
         self,
@@ -376,3 +340,15 @@ class StrategyAdapter:
     @abstractmethod
     def ack(self, trade: MarketTrade):
         raise NotImplementedError
+
+
+def _parse_interval(raw: str) -> int:
+    """Parse e.g. '5m' into seconds."""
+    raw = raw.strip().lower()
+    if raw.endswith("m"):
+        return int(raw[:-1]) * 60
+    if raw.endswith("h"):
+        return int(raw[:-1]) * 3600
+    if raw.endswith("s"):
+        return int(raw[:-1])
+    return int(raw)

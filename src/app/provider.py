@@ -9,7 +9,8 @@ from src.app.config import (
 from src.app.logger import init_logger
 from src.clickhouse.client import ClickHouseClient
 from src.clickhouse.recorder import ClickHouseRecorder
-from src.drawdown.strategy import DrawdownStrategy, DrawdownMeanRevStrategy
+from src.drawdown.strategy import DrawdownCrossMAStrategy
+from src.drawdown.meanrev import DrawdownMeanRevStrategy
 from src.exchange.simulator import SimulateExchange
 from src.okx.client import OkxClient
 from src.okx.exchange import OkxExchange
@@ -52,7 +53,7 @@ class AppProvider:
             clickhouse_client=self.clickhouse_client,
             session_id=self.session_id,
         )
-        self.drawdown_crossma = DrawdownStrategy(
+        self.drawdown_crossma = DrawdownCrossMAStrategy(
             recorder=self.recorder,
             logger=self.logger,
         )

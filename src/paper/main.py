@@ -28,8 +28,7 @@ def main():
         strategy = provider.drawdown_meanrev
         strategy.bootstrap(
             exchange=provider.okx_exchange,
-            short_length=setup.crossma.short_length,
-            long_length=setup.crossma.long_length,
+            bucket_interval=setup.meanrev.bucket_interval,
             window=setup.drawdown.window,
             threshold_scale_map=setup.drawdown.threshold_scale_map,
             lookback=setup.meanrev.lookback,
@@ -42,6 +41,7 @@ def main():
             exchange=provider.okx_exchange,
             short_length=setup.crossma.short_length,
             long_length=setup.crossma.long_length,
+            bucket_interval=setup.crossma.bucket_interval,
             window=setup.drawdown.window,
             threshold_scale_map=setup.drawdown.threshold_scale_map,
         )

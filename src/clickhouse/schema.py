@@ -108,6 +108,7 @@ TABLES: dict[str, dict] = {
     "portfolio_session": {
         "columns": _PORTFOLIO_SESSION_COLUMNS,
         "order_by": "(session_id)",
+        "engine": "ReplacingMergeTree(started_at)",
     },
     "portfolio_screen": {
         "columns": _PORTFOLIO_SCREEN_COLUMNS,
@@ -128,12 +129,13 @@ def _create_ddl(database: str, table: str, spec: dict) -> str:
     col_defs = ",\n    ".join(
         f"{name} {ch_type}" for name, ch_type, _ in spec["columns"]
     )
+    engine = spec.get("engine", "MergeTree()")
     partition = spec.get("partition_by")
     partition_clause = f"PARTITION BY {partition}\n" if partition else ""
     return (
         f"CREATE TABLE IF NOT EXISTS {database}.{table} (\n"
         f"    {col_defs}\n"
-        f") ENGINE = MergeTree()\n"
+        f") ENGINE = {engine}\n"
         f"{partition_clause}"
         f"ORDER BY {spec['order_by']}\n"
     )

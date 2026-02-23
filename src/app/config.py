@@ -89,6 +89,7 @@ class DepthConfig(Config):
 class CrossMAConfig(Config):
     short_length: int = 15
     long_length: int = 200
+    bucket_interval: str = "5m"
 
 
 @dataclass
@@ -112,6 +113,7 @@ class MeanRevConfig(Config):
     lookback: int
     entry_threshold: float
     exit_threshold: float
+    bucket_interval: str = "5m"
 
 
 @dataclass

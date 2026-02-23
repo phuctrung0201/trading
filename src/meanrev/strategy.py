@@ -2,7 +2,7 @@ from src.math.rolling import RollingWindow
 from src.zscore.indicator import zscore
 
 
-class MeanRevStrategy:
+class MeanRevIndicator:
     def __init__(self, lookback: int, entry_threshold: float, exit_threshold: float):
         self._window = RollingWindow(lookback)
         self._entry_threshold = entry_threshold

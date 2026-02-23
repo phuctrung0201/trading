@@ -1,9 +1,9 @@
 from src.crossma.strategy import CrossMAStrategy
-from src.drawdown.strategy import DrawdownStrategy
+from src.drawdown.strategy import DrawdownCrossMAStrategy
 
 STRATEGY_REGISTRY: dict[str, type] = {
     "crossma": CrossMAStrategy,
-    "drawdown": DrawdownStrategy,
+    "drawdown": DrawdownCrossMAStrategy,
 }
 
 

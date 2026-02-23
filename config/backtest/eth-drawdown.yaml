@@ -7,8 +7,9 @@ backtest:
 
 
 crossma:
-  short_length: 10000
-  long_length: 50000
+  short_length: 6
+  long_length: 12
+  bucket_interval: 5m
 
 drawdown:
   window: 100000
