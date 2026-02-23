@@ -24,17 +24,44 @@ class DrawdownCrossMAStrategy(CrossMAStrategy):
         self._mark_to_market()
         self.reconcile()
 
+        bucket = self._accumulate(trade)
+        if bucket is None:
+            return
+
+        self._tick_count += 1
+        self._short_ema.update(bucket.price)
+        self._long_ema.update(bucket.price)
+
         equity = self.exchange.get_equity()
         drawdown = self._dd.calculate_drawdown(equity)
         scale = self._dd.scale_position(drawdown)
-        result = self._signal(trade)
+
+        short_ema = self._short_ema.value
+        long_ema = self._long_ema.value
+        result = SignalResult(short_ema=short_ema, long_ema=long_ema)
+
         self._logger.info(
             f"DrawdownCrossMAStrategy bucket "
-            f"timestamp={trade.timestamp} "
-            f"price={trade.price} "
-            f"short_ema={result.short_ema} long_ema={result.long_ema} "
+            f"timestamp={bucket.timestamp} "
+            f"price={bucket.price} volume={bucket.volume:.4f} "
+            f"short_ema={short_ema} long_ema={long_ema} "
             f"equity={equity:.4f} drawdown={drawdown:.4f} scale={scale:.4f}"
         )
+
+        if self._tick_count < self.long:
+            self._emit_trade_measurement(trade, result, drawdown=drawdown)
+            return
+
+        if not self._warmed_up:
+            self._warmed_up = True
+            self._logger.info(f"Warmup complete buckets={self._tick_count}")
+
+        if short_ema is None or long_ema is None:
+            self._emit_trade_measurement(trade, result, drawdown=drawdown)
+            return
+
+        signal = self.compute_signal(short_ema, long_ema)
+        result = SignalResult(signal=signal, short_ema=short_ema, long_ema=long_ema)
 
         if result.signal is not None:
             side = "buy" if result.signal == "LONG" else "sell"
@@ -93,13 +120,23 @@ class DrawdownCrossMAStrategy(CrossMAStrategy):
                     )
 
         if self._current_position is not None and scale != self._exposure_ratio:
+            old_scale = self._exposure_ratio
             self._logger.info(
                 f"DrawdownCrossMAStrategy scale changed "
-                f"old_scale={self._exposure_ratio:.4f} new_scale={scale:.4f} "
+                f"old_scale={old_scale:.4f} new_scale={scale:.4f} "
                 f"resizing position"
             )
             side = self._current_position.side
+            close_pnl = self.exchange.unrealized_pnl()
             self.exchange.close(self._current_position)
+            self._emit_event(
+                trade, "close", signal_result=result,
+                fill_price=self._last_close_price,
+                pnl=close_pnl,
+                reason=f"resize close old_scale={old_scale:.4f}",
+                drawdown=drawdown,
+                fee=self._last_fee(),
+            )
             self._current_position = None
 
             self._exposure_ratio = scale
@@ -112,7 +149,7 @@ class DrawdownCrossMAStrategy(CrossMAStrategy):
                 self._emit_event(
                     trade, "resize", signal_result=result,
                     fill_price=self._current_position.price,
-                    reason=f"drawdown scale {self._exposure_ratio:.4f} -> {scale:.4f}",
+                    reason=f"drawdown scale {old_scale:.4f} -> {scale:.4f}",
                     drawdown=drawdown,
                     fee=self._last_fee(),
                 )

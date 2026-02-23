@@ -29,16 +29,16 @@ class CrossMAStrategy(BucketStrategy):
         return None
 
     def _signal(self, trade: MarketTrade) -> SignalResult:
-        bucket_price = self._accumulate(trade)
-        if bucket_price is None:
+        bucket = self._accumulate(trade)
+        if bucket is None:
             return SignalResult(
                 short_ema=self._short_ema.value,
                 long_ema=self._long_ema.value,
             )
 
         self._tick_count += 1
-        self._short_ema.update(bucket_price)
-        self._long_ema.update(bucket_price)
+        self._short_ema.update(bucket.price)
+        self._long_ema.update(bucket.price)
 
         if self._tick_count < self.long:
             self._logger.info(f"Warmup {self._tick_count}/{self.long}")

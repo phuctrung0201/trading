@@ -18,11 +18,11 @@ class MeanRevStrategy(BucketStrategy):
         self._meanrev = MeanRevIndicator(lookback, entry_threshold, exit_threshold)
 
     def _signal(self, trade: MarketTrade) -> SignalResult:
-        bucket_price = self._accumulate(trade)
-        if bucket_price is None:
+        bucket = self._accumulate(trade)
+        if bucket is None:
             return SignalResult()
 
-        signal = self._meanrev.push(bucket_price)
+        signal = self._meanrev.push(bucket.price)
         z = self._meanrev.last_z
         return SignalResult(signal=signal)
 

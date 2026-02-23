@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import datetime, timezone
 
 from src.app.logger import AppLogger
 from src.clickhouse.client import ClickHouseClient
@@ -45,9 +46,10 @@ class DatasetReader:
             for line in rows:
                 trade_id, ts, price, size, side = line.split("\t")
                 total += 1
+                ts_ms = self._to_epoch_ms(ts)
                 yield MarketTrade(
                     trade_id=trade_id,
-                    timestamp=ts,
+                    timestamp=ts_ms,
                     price=float(price),
                     size=float(size),
                     side=side,
@@ -56,6 +58,14 @@ class DatasetReader:
                 break
             offset += self._PAGE_SIZE
         self._logger.info(f"DatasetReader done dataset={self._dataset} total={total}")
+
+    @staticmethod
+    def _to_epoch_ms(ts: str) -> str:
+        try:
+            return str(int(ts))
+        except ValueError:
+            dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=timezone.utc)
+            return str(int(dt.timestamp() * 1000))
 
     def count(self) -> int:
         query = (

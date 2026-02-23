@@ -25,22 +25,22 @@ class DrawdownMeanRevStrategy(MeanRevStrategy):
         self._mark_to_market()
         self.reconcile()
 
-        bucket_price = self._accumulate(trade)
-        if bucket_price is None:
+        bucket = self._accumulate(trade)
+        if bucket is None:
             return
 
         equity = self.exchange.get_equity()
         drawdown = self._dd.calculate_drawdown(equity)
         scale = self._dd.scale_position(drawdown)
 
-        signal = self.meanrev.push(bucket_price)
+        signal = self.meanrev.push(bucket.price)
         z = self.meanrev.last_z
         result = SignalResult(signal=signal)
 
         self._logger.info(
             f"DrawdownMeanRevStrategy bucket "
-            f"timestamp={trade.timestamp} "
-            f"price={bucket_price} "
+            f"timestamp={bucket.timestamp} "
+            f"price={bucket.price} volume={bucket.volume:.4f} "
             f"z={z} "
             f"equity={equity:.4f} drawdown={drawdown:.4f} scale={scale:.4f}"
         )
@@ -131,12 +131,23 @@ class DrawdownMeanRevStrategy(MeanRevStrategy):
                     )
 
         if self._current_position is not None and scale != self._exposure_ratio:
+            old_scale = self._exposure_ratio
             self._logger.info(
                 f"DrawdownMeanRevStrategy scale changed "
-                f"old_scale={self._exposure_ratio:.4f} new_scale={scale:.4f}"
+                f"old_scale={old_scale:.4f} new_scale={scale:.4f}"
             )
             side = self._current_position.side
+            close_pnl = self.exchange.unrealized_pnl()
             self.exchange.close(self._current_position)
+            self._emit_event(
+                trade, "close", signal_result=result,
+                fill_price=self._last_close_price,
+                pnl=close_pnl,
+                reason=f"resize close old_scale={old_scale:.4f}",
+                drawdown=drawdown,
+                zscore=z,
+                fee=self._last_fee(),
+            )
             self._current_position = None
 
             self._exposure_ratio = scale
@@ -149,7 +160,7 @@ class DrawdownMeanRevStrategy(MeanRevStrategy):
                 self._emit_event(
                     trade, "resize", signal_result=result,
                     fill_price=self._current_position.price,
-                    reason=f"drawdown scale {self._exposure_ratio:.4f} -> {scale:.4f}",
+                    reason=f"drawdown scale {old_scale:.4f} -> {scale:.4f}",
                     drawdown=drawdown,
                     zscore=z,
                     fee=self._last_fee(),

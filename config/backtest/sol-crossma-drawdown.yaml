@@ -1,5 +1,4 @@
 instrument: SOL-USDT-SWAP
-strategy: drawdown_meanrev
 
 backtest:
   dataset: SOL-TRADE-OKX
@@ -10,14 +9,13 @@ backtest:
   #   minute: 30
 
 drawdown:
-  window: 100000
+  window: 200
   threshold_scale_map:
     0.0: 1.0
-    0.01: 0.1
+    0.01: 0.05
     0.05: 0.01
 
-meanrev:
-  lookback: 100
-  entry_threshold: 2.0
-  exit_threshold: 0.5
+crossma:
+  short_length: 12
+  long_length: 20
   bucket_interval: 5m
