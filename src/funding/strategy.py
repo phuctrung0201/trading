@@ -7,7 +7,7 @@ from src.app.logger import AppLogger
 from src.clickhouse.recorder import Recorder
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import FundingSnapshot, MarketTrade, Position
-from src.universe import Universe
+from src.instrument.universe import Universe
 from src.strategy.adapter import SignalResult, StrategyAdapter
 
 
@@ -105,10 +105,6 @@ class FundingStrategy(StrategyAdapter):
             positions_opened=self._positions_opened,
             positions_closed=self._positions_closed,
         )
-
-    # ------------------------------------------------------------------
-    # internals
-    # ------------------------------------------------------------------
 
     def _per_position_notional(self) -> float:
         return self._config.notional / max(len(self._universe), 1)

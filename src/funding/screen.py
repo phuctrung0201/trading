@@ -4,9 +4,8 @@ from dataclasses import dataclass
 
 from src.app.config import FundingConfig
 from src.app.logger import AppLogger
-from src.funding.data import get_funding_rate, FundingRate
-from src.universe import Universe
-from src.okx.pool import OkxClientPool
+from src.funding.repo import FundingRepo
+from src.instrument.universe import Universe
 
 
 @dataclass
@@ -18,16 +17,12 @@ class FundingCandidate:
 
 
 class FundingScreener:
-    def __init__(self, pool: OkxClientPool, config: FundingConfig, logger: AppLogger):
-        self._pool = pool
+    def __init__(self, funding: FundingRepo, config: FundingConfig, logger: AppLogger):
+        self._funding = funding
         self._config = config
         self._logger = logger
 
     def screen(self, universe: Universe) -> list[FundingCandidate]:
-        """Screen instruments in the universe and return candidates.
-
-        A pair passes if |funding_rate| >= min_funding_rate.
-        """
         candidates: list[FundingCandidate] = []
         for inst in universe:
             result = self._screen_one(inst.pair, inst.inst_id)
@@ -37,7 +32,7 @@ class FundingScreener:
 
     def _screen_one(self, pair: str, perp_inst_id: str) -> FundingCandidate | None:
         try:
-            rate_data = get_funding_rate(self._pool, perp_inst_id)
+            rate_data = self._funding.get_rate(perp_inst_id)
         except Exception as exc:
             self._logger.warning(f"screen: failed to fetch rate for {perp_inst_id}: {exc}")
             return None

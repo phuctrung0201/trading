@@ -8,8 +8,6 @@ CONFIG_DIR = Path("config")
 
 
 class Config:
-    """Base class for all config schemas."""
-
     @classmethod
     def from_dict(cls, data: dict):
         hints = get_type_hints(cls)
@@ -40,7 +38,6 @@ def _unwrap_optional(tp):
 
 
 def load_config[T: Config](module: str, name: str, schema: type[T]) -> T:
-    """Load config/<module>/<name>.yaml and return as typed config."""
     path = CONFIG_DIR / module / f"{name}.yaml"
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
@@ -48,10 +45,6 @@ def load_config[T: Config](module: str, name: str, schema: type[T]) -> T:
         raise ValueError(f"Config root must be a mapping: {path}")
     return schema.from_dict(data)
 
-
-# ---------------------------------------------------------------------------
-# Config schemas
-# ---------------------------------------------------------------------------
 
 @dataclass
 class LoggerConfig(Config):

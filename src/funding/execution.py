@@ -5,9 +5,9 @@ from dataclasses import dataclass
 
 from src.app.config import FundingConfig
 from src.app.logger import AppLogger
-from src.funding.data import get_funding_rate, get_prices, PricePair
-from src.okx.pool import OkxClientPool
-from src.okx.trading import OkxTrading
+from src.funding.repo import FundingRepo
+from src.instrument.repo import InstrumentRepo
+from src.trade.repo import TradeRepo
 
 
 @dataclass
@@ -34,23 +34,20 @@ def _perp_inst_id(pair: str, quote: str) -> str:
 
 
 def enter_position(
-    pool: OkxClientPool,
-    trading: OkxTrading,
+    funding: FundingRepo,
+    instruments: InstrumentRepo,
+    trading: TradeRepo,
     pair: str,
     direction: str,
     config: FundingConfig,
     logger: AppLogger,
 ) -> FundingPosition | None:
-    """Open a delta-neutral spot+perp position.
-
-    direction: "long_spot" (long spot + short perp) or "short_spot".
-    """
     quote = config.quote
     spot_id = _spot_inst_id(pair, quote)
     perp_id = _perp_inst_id(pair, quote)
     notional = config.notional
 
-    prices = get_prices(pool, spot_id, perp_id)
+    prices = instruments.get_price_pair(spot_id, perp_id)
     spot_qty = notional / prices.spot_price
     perp_qty = notional / prices.perp_price
 
@@ -74,7 +71,7 @@ def enter_position(
         _flatten_leg(trading, spot_id, "sell" if spot_side == "buy" else "buy", spot_qty, logger)
         return None
 
-    current_rate = get_funding_rate(pool, perp_id)
+    current_rate = funding.get_rate(perp_id)
 
     return FundingPosition(
         pair=pair,
@@ -92,14 +89,13 @@ def enter_position(
 
 
 def rebalance(
-    pool: OkxClientPool,
-    trading: OkxTrading,
+    instruments: InstrumentRepo,
+    trading: TradeRepo,
     position: FundingPosition,
     config: FundingConfig,
     logger: AppLogger,
 ) -> FundingPosition:
-    """Check drift and rebalance if needed. Returns updated position."""
-    prices = get_prices(pool, position.spot_inst_id, position.perp_inst_id)
+    prices = instruments.get_price_pair(position.spot_inst_id, position.perp_inst_id)
     spot_notional = position.spot_qty * prices.spot_price
     perp_notional = position.perp_qty * prices.perp_price
 
@@ -148,12 +144,11 @@ def rebalance(
 
 
 def check_exit(
-    pool: OkxClientPool,
+    funding: FundingRepo,
     position: FundingPosition,
     logger: AppLogger,
 ) -> bool:
-    """Return True if the position should be exited."""
-    rate_data = get_funding_rate(pool, position.perp_inst_id)
+    rate_data = funding.get_rate(position.perp_inst_id)
     current_rate = rate_data.rate
 
     if position.direction == "long_spot":
@@ -178,11 +173,10 @@ def check_exit(
 
 
 def exit_position(
-    trading: OkxTrading,
+    trading: TradeRepo,
     position: FundingPosition,
     logger: AppLogger,
 ) -> None:
-    """Close both legs of the position."""
     if position.direction == "long_spot":
         spot_close_side, perp_close_side = "sell", "buy"
     else:
@@ -194,7 +188,7 @@ def exit_position(
 
 
 def _place_with_retry(
-    trading: OkxTrading,
+    trading: TradeRepo,
     inst_id: str,
     side: str,
     size: float,
@@ -216,7 +210,7 @@ def _place_with_retry(
 
 
 def _flatten_leg(
-    trading: OkxTrading,
+    trading: TradeRepo,
     inst_id: str,
     side: str,
     size: float,

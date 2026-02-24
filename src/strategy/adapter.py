@@ -288,7 +288,6 @@ class StrategyAdapter:
         self.recorder.record(measurement)
 
     def _execute(self, trade: MarketTrade, result: SignalResult):
-        """Common open/close execution for signal-driven strategies."""
         if result.signal is None:
             return
 

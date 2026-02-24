@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 
 from src.app.config import UniverseConfig, ScreeningConfig
 from src.app.logger import AppLogger
-from src.okx.pool import OkxClientPool
-from src.universe import Universe
+from src.instrument.repo import InstrumentRepo
+from src.trade.repo import TradeRepo
+from src.instrument.universe import Universe
 
 
 class _Counter:
@@ -42,16 +43,23 @@ def _parse_bucket_interval(raw: str) -> int:
 
 
 class UniverseFetcher:
-    def __init__(self, pool: OkxClientPool, universe_cfg: UniverseConfig,
-                 screening_cfg: ScreeningConfig, logger: AppLogger):
-        self._pool = pool
+    def __init__(
+        self,
+        instruments: InstrumentRepo,
+        trades: TradeRepo,
+        universe_cfg: UniverseConfig,
+        screening_cfg: ScreeningConfig,
+        logger: AppLogger,
+    ):
+        self._instruments = instruments
+        self._trades = trades
         self._cfg = universe_cfg
         self._screening_cfg = screening_cfg
         self._logger = logger
 
     def fetch(self) -> list[TradeInstrument]:
         universe = Universe.discover(
-            self._pool, self._cfg, self._logger,
+            self._instruments, self._cfg, self._logger,
             top_n=200,
         )
         self._logger.info(f"Universe after volume filter: {len(universe)}")
@@ -71,63 +79,14 @@ class UniverseFetcher:
         total = len(specs)
         self._logger.info(f"Fetching trades for {total} instruments concurrently")
         counter = _Counter(total)
-        results: list[TradeInstrument] = self._pool.map(
-            lambda pool, s: self._fetch_one(pool, s, counter),
-            specs,
-            max_workers=min(self._pool.pool_size, len(specs)),
-        )
+        raw_results = self._trades.fetch_ranges(specs)
+
+        results: list[TradeInstrument] = []
+        for i, trades in enumerate(raw_results):
+            inst_id = specs[i][0]
+            done = counter.increment()
+            self._logger.info(f"[{done}/{counter.total}] {inst_id}: {len(trades)} trades")
+            results.append(
+                TradeInstrument(inst_id=inst_id, daily_volume_usd=0.0, trades=trades),
+            )
         return results
-
-    def _fetch_one(
-        self,
-        pool: OkxClientPool,
-        spec: tuple[str, int, int],
-        counter: _Counter,
-    ) -> TradeInstrument:
-        inst_id, start_ms, end_ms = spec
-        trades: list[dict] = []
-        cursor = str(end_ms)
-
-        while True:
-            try:
-                data = pool.public_get(
-                    "/api/v5/market/history-trades",
-                    params={
-                        "instId": inst_id,
-                        "limit": "100",
-                        "after": cursor,
-                        "type": "2",
-                    },
-                )
-            except Exception as exc:
-                self._logger.warning(
-                    f"_fetch_one failed inst_id={inst_id} cursor={cursor} "
-                    f"fetched_so_far={len(trades)}: {exc}",
-                    exc_info=True,
-                )
-                break
-
-            if not data:
-                break
-
-            trades.extend(data)
-            oldest_ts = int(data[-1]["ts"])
-            if oldest_ts <= start_ms or len(data) < 100:
-                break
-            if str(oldest_ts) == cursor:
-                break
-            cursor = str(oldest_ts)
-
-        seen: set[str] = set()
-        unique: list[dict] = []
-        for t in trades:
-            tid = t["tradeId"]
-            if tid not in seen:
-                seen.add(tid)
-                if int(t["ts"]) >= start_ms:
-                    unique.append(t)
-
-        unique.sort(key=lambda t: int(t["ts"]))
-        done = counter.increment()
-        self._logger.info(f"[{done}/{counter.total}] {inst_id}: {len(unique)} trades")
-        return TradeInstrument(inst_id=inst_id, daily_volume_usd=0.0, trades=unique)

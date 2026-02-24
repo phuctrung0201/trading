@@ -182,7 +182,6 @@ class ClickHouseClient:
             )
 
     def _exec_strict(self, query: str):
-        """Execute query, raise on failure."""
         resp = self._session.post(
             self.url,
             params={"database": self.database, "user": self.user, "password": self.password},

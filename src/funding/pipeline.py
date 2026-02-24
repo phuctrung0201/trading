@@ -14,9 +14,10 @@ from src.funding.execution import (
     exit_position,
 )
 from src.funding.screen import FundingCandidate, FundingScreener
-from src.universe import Universe
-from src.okx.pool import OkxClientPool
-from src.okx.trading import OkxTrading
+from src.instrument.universe import Universe
+from src.funding.repo import FundingRepo
+from src.instrument.repo import InstrumentRepo
+from src.trade.repo import TradeRepo
 
 
 class FundingPipeline:
@@ -26,13 +27,15 @@ class FundingPipeline:
 
     def __init__(
         self,
-        pool: OkxClientPool,
-        trading: OkxTrading,
+        funding: FundingRepo,
+        instruments: InstrumentRepo,
+        trading: TradeRepo,
         config: FundingConfig,
         clickhouse: ClickHouseClient | None,
         logger: AppLogger,
     ):
-        self._pool = pool
+        self._funding = funding
+        self._instruments = instruments
         self._trading = trading
         self._config = config
         self._ch = clickhouse
@@ -47,7 +50,7 @@ class FundingPipeline:
         self._write_session(session_id, "RUNNING")
 
         try:
-            screener = FundingScreener(self._pool, self._config, self._logger)
+            screener = FundingScreener(self._funding, self._config, self._logger)
             candidates = screener.screen(universe)
             self._logger.info(f"Candidates: {len(candidates)}")
             self._write_screen(session_id, candidates)
@@ -73,8 +76,8 @@ class FundingPipeline:
                 self._logger.info(f"enter: {c.pair} already active — skip")
                 continue
             pos = enter_position(
-                self._pool, self._trading, c.pair, c.direction,
-                self._config, self._logger,
+                self._funding, self._instruments, self._trading,
+                c.pair, c.direction, self._config, self._logger,
             )
             if pos is not None:
                 self._positions.append(pos)
@@ -86,13 +89,13 @@ class FundingPipeline:
     def _phase_manage(self) -> None:
         for i, pos in enumerate(self._positions):
             self._positions[i] = rebalance(
-                self._pool, self._trading, pos, self._config, self._logger,
+                self._instruments, self._trading, pos, self._config, self._logger,
             )
 
     def _phase_exit(self) -> None:
         remaining: list[FundingPosition] = []
         for pos in self._positions:
-            should_exit = check_exit(self._pool, pos, self._logger)
+            should_exit = check_exit(self._funding, pos, self._logger)
             if should_exit:
                 exit_position(self._trading, pos, self._logger)
             else:

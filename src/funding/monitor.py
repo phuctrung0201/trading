@@ -5,33 +5,34 @@ from datetime import datetime, timezone
 from src.app.config import FundingConfig
 from src.app.logger import AppLogger
 from src.clickhouse.client import ClickHouseClient
-from src.funding.data import get_funding_rate, get_prices
 from src.funding.execution import FundingPosition
-from src.okx.pool import OkxClientPool
+from src.funding.repo import FundingRepo
+from src.instrument.repo import InstrumentRepo
 
 
 class FundingMonitor:
     def __init__(
         self,
-        pool: OkxClientPool,
+        funding: FundingRepo,
+        instruments: InstrumentRepo,
         config: FundingConfig,
         clickhouse: ClickHouseClient | None,
         logger: AppLogger,
     ):
-        self._pool = pool
+        self._funding = funding
+        self._instruments = instruments
         self._config = config
         self._ch = clickhouse
         self._logger = logger
 
     def run(self, positions: list[FundingPosition]) -> None:
-        """Load current state for all positions, report, and alert."""
         for pos in positions:
             self._monitor_one(pos)
 
     def _monitor_one(self, pos: FundingPosition) -> None:
         try:
-            prices = get_prices(self._pool, pos.spot_inst_id, pos.perp_inst_id)
-            rate_data = get_funding_rate(self._pool, pos.perp_inst_id)
+            prices = self._instruments.get_price_pair(pos.spot_inst_id, pos.perp_inst_id)
+            rate_data = self._funding.get_rate(pos.perp_inst_id)
         except Exception as exc:
             self._logger.error(f"monitor: fetch failed pair={pos.pair}: {exc}")
             return

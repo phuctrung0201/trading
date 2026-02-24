@@ -1,12 +1,10 @@
 import argparse
-from collections.abc import Iterator
 
 from src.app.config import load_config, StrategyConfig
 from src.app.provider import AppProvider
 from src.backtest.app import BacktestApp
-from src.exchange.dto import FundingSnapshot
 from src.exchange.simulator import SimulateExchange
-from src.universe import Universe
+from src.instrument.universe import Universe
 
 
 def parse_args():
@@ -28,84 +26,9 @@ def _build_trade_source(provider: AppProvider, setup: StrategyConfig):
     return provider.okx_exchange.stream_history(depth_sec=depth_sec)
 
 
-def _fetch_candle_close(pool, inst_id: str, ts: int) -> float:
-    """Fetch the 4H candle close price at the given timestamp.
-
-    Tries the recent candles endpoint first, then falls back to
-    history-candles for older data.
-    """
-    params = {"instId": inst_id, "bar": "4H", "after": str(ts + 1), "limit": "1"}
-    try:
-        candles = pool.public_get("/api/v5/market/candles", params=params)
-        if candles:
-            return float(candles[0][4])
-        candles = pool.public_get("/api/v5/market/history-candles", params=params)
-        if candles:
-            return float(candles[0][4])
-    except Exception:
-        pass
-    return 0.0
-
-
-def _fetch_instrument_funding(
-    pool, pair: str, perp_id: str, logger,
-) -> Iterator[FundingSnapshot]:
-    """Yield historical funding snapshots for a single instrument."""
-    quote = perp_id.split("-")[1] if "-" in perp_id else "USDT"
-    spot_id = f"{pair}-{quote}"
-
-    history = pool.public_get(
-        "/api/v5/public/funding-rate-history",
-        params={"instId": perp_id, "limit": "100"},
-    )
-    if not history:
-        logger.warning(f"No funding history for {perp_id}")
-        return
-
-    history.sort(key=lambda r: int(r.get("fundingTime", 0)))
-
-    for entry in history:
-        rate = float(entry.get("realizedRate", entry.get("fundingRate", "0")))
-        ts = int(entry.get("fundingTime", 0))
-
-        spot_price = _fetch_candle_close(pool, spot_id, ts)
-        perp_price = _fetch_candle_close(pool, perp_id, ts)
-
-        if spot_price <= 0 or perp_price <= 0:
-            continue
-
-        yield FundingSnapshot(
-            timestamp=ts,
-            funding_rate=rate,
-            spot_price=spot_price,
-            perp_price=perp_price,
-            inst_id=perp_id,
-        )
-
-
-def _build_funding_source(
-    provider: AppProvider, universe: Universe,
-) -> Iterator[FundingSnapshot]:
-    """Fetch historical funding snapshots for all instruments in the universe,
-    merged in chronological order."""
-    pool = provider.okx_client.pool
-    logger = provider.logger
-
-    logger.info(f"Fetching funding history for {len(universe)} instruments")
-
-    all_snapshots: list[FundingSnapshot] = []
-    for inst in universe:
-        snapshots = list(_fetch_instrument_funding(pool, inst.pair, inst.inst_id, logger))
-        logger.info(f"  {inst.inst_id}: {len(snapshots)} snapshots")
-        all_snapshots.extend(snapshots)
-
-    all_snapshots.sort(key=lambda s: (s.timestamp, s.inst_id))
-    yield from all_snapshots
-
-
 def _run_funding(app: BacktestApp, provider: AppProvider, universe: Universe):
     total = 0
-    for snapshot in _build_funding_source(provider, universe):
+    for snapshot in provider.funding.fetch_universe_history(universe.instruments):
         total += 1
         try:
             app.strategy.ack_funding(snapshot)

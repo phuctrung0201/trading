@@ -7,8 +7,6 @@ from src.exchange.dto import MarketTrade
 
 
 class DatasetReader:
-    """Stream MarketTrade rows from the market_trade table by dataset name."""
-
     _PAGE_SIZE = 10_000
 
     def __init__(self, client: ClickHouseClient, dataset: str, logger: AppLogger):
@@ -87,8 +85,6 @@ class DatasetReader:
 
 
 class DatasetWriter:
-    """Write MarketTrade rows into the market_trade table tagged with a dataset name."""
-
     def __init__(self, client: ClickHouseClient, dataset: str, logger: AppLogger):
         self._client = client
         self._dataset = dataset

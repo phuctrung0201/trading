@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from src.app.config import UniverseConfig
 from src.app.logger import AppLogger
-from src.okx.pool import OkxClientPool
+from src.instrument.repo import InstrumentRepo
 
 
 @dataclass(frozen=True)
@@ -26,22 +26,16 @@ class Universe:
     @classmethod
     def discover(
         cls,
-        pool: OkxClientPool,
+        repo: InstrumentRepo,
         config: UniverseConfig,
         logger: AppLogger,
         top_n: int = 10,
     ) -> Universe:
         """Query OKX for live perp instruments, filter by quote currency and
         24h volume, and return the top *top_n* by volume."""
-        data = pool.public_get(
-            "/api/v5/public/instruments",
-            params={"instType": config.type},
-        )
+        data = repo.list_instruments(config.type)
+        tickers = repo.list_tickers(config.type)
 
-        tickers = pool.public_get(
-            "/api/v5/market/tickers",
-            params={"instType": config.type},
-        )
         vol_map: dict[str, float] = {}
         for t in tickers:
             vol_map[t.get("instId", "")] = float(t.get("volCcy24h", "0"))
@@ -90,11 +84,9 @@ class Universe:
 
 
 class UniverseProvider:
-    """Bound to a pool and logger so callers only pass the config."""
-
-    def __init__(self, pool: OkxClientPool, logger: AppLogger):
-        self._pool = pool
+    def __init__(self, instruments: InstrumentRepo, logger: AppLogger):
+        self._instruments = instruments
         self._logger = logger
 
     def discover(self, config: UniverseConfig, top_n: int = 10) -> Universe:
-        return Universe.discover(self._pool, config, self._logger, top_n=top_n)
+        return Universe.discover(self._instruments, config, self._logger, top_n=top_n)

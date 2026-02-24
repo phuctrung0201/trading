@@ -4,8 +4,7 @@ import time
 from src.app.config import load_config, StrategyConfig
 from src.app.provider import AppProvider
 from src.exchange.simulator import SimulateExchange
-from src.funding.data import fetch_funding_snapshot
-from src.universe import Universe
+from src.instrument.universe import Universe
 from src.paper.app import PaperApp
 
 _FUNDING_POLL_SEC = 60
@@ -19,7 +18,6 @@ def parse_args():
 
 def _run_funding(app: PaperApp, provider: AppProvider, universe: Universe):
     logger = app.logger
-    pool = provider.okx_client.pool
     last_ts: dict[str, int | None] = {i.inst_id: None for i in universe}
     total = 0
 
@@ -27,7 +25,7 @@ def _run_funding(app: PaperApp, provider: AppProvider, universe: Universe):
         for inst in universe:
             inst_id = inst.inst_id
             try:
-                snapshot = fetch_funding_snapshot(pool, inst_id)
+                snapshot = provider.funding.fetch_snapshot(inst_id)
             except Exception as exc:
                 logger.error(f"Funding fetch failed for {inst_id}: {exc}", exc_info=True)
                 app.emit_error_ops(str(exc))

@@ -44,7 +44,8 @@ def main():
     portfolio_cfg = load_config("portfolio", "scanner", PortfolioConfig)
 
     pipeline = Pipeline(
-        pool=okx_client.pool,
+        instruments=okx_client.instruments,
+        trades=okx_client.trades,
         config=portfolio_cfg,
         clickhouse=ch_client,
         logger=logger,

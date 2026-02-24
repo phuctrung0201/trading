@@ -10,10 +10,11 @@ from src.app.logger import init_logger
 from src.clickhouse.client import ClickHouseClient
 from src.clickhouse.recorder import ClickHouseRecorder
 from src.exchange.simulator import SimulateExchange
+from src.funding.repo import FundingRepo
 from src.okx.client import OkxClient
 from src.okx.exchange import OkxExchange
 from src.strategy.factory import StrategyFactory
-from src.universe import UniverseProvider
+from src.instrument.universe import UniverseProvider
 
 
 class AppProvider:
@@ -63,6 +64,13 @@ class AppProvider:
         )
 
         self.universe = UniverseProvider(
+            instruments=self.okx_client.instruments,
+            logger=self.logger,
+        )
+
+        self.funding = FundingRepo(
             pool=self.okx_client.pool,
+            instruments=self.okx_client.instruments,
+            trades=self.okx_client.trades,
             logger=self.logger,
         )

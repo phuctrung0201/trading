@@ -4,8 +4,6 @@ from src.exchange.position import PositionTracker
 
 
 class SimulateExchange(ExchangeAdapter):
-    """Backtesting: delegates everything to PositionTracker."""
-
     def __init__(self, initial_equity: float = 100.0, fee_rate: float = 0.0):
         self._tracker = PositionTracker(initial_equity, fee_rate=fee_rate)
 

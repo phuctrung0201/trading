@@ -6,16 +6,24 @@ from datetime import datetime, timezone
 from src.app.config import PortfolioConfig
 from src.app.logger import AppLogger
 from src.clickhouse.client import ClickHouseClient
-from src.okx.pool import OkxClientPool
+from src.instrument.repo import InstrumentRepo
+from src.trade.repo import TradeRepo
 from src.portfolio.rank import RankResult, rank
 from src.portfolio.screen import ScreenResult, Screener
 from src.portfolio.universe import UniverseFetcher
 
 
 class Pipeline:
-    def __init__(self, pool: OkxClientPool, config: PortfolioConfig,
-                 clickhouse: ClickHouseClient | None, logger: AppLogger):
-        self._pool = pool
+    def __init__(
+        self,
+        instruments: InstrumentRepo,
+        trades: TradeRepo,
+        config: PortfolioConfig,
+        clickhouse: ClickHouseClient | None,
+        logger: AppLogger,
+    ):
+        self._instruments = instruments
+        self._trades = trades
         self._config = config
         self._ch = clickhouse
         self._logger = logger
@@ -29,7 +37,8 @@ class Pipeline:
 
         try:
             instruments = UniverseFetcher(
-                self._pool, self._config.universe,
+                self._instruments, self._trades,
+                self._config.universe,
                 self._config.screening, self._logger,
             ).fetch()
 
@@ -82,8 +91,6 @@ class Pipeline:
                     f"hl={r.half_life:.1f}  "
                     f"vol={r.volatility:.4f}"
                 )
-
-    # -- ClickHouse writes ---------------------------------------------------
 
     def _write_session(self, session_id: str, started_at: int, status: str,
                        universe_size: int = 0, passed_count: int = 0,

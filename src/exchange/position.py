@@ -2,8 +2,6 @@ from src.exchange.dto import Position
 
 
 class PositionTracker:
-    """In-memory position and equity tracking."""
-
     def __init__(self, initial_equity: float = 100.0, fee_rate: float = 0.0):
         self.asset = initial_equity
         self.position: Position | None = None

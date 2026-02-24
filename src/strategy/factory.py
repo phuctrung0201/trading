@@ -5,7 +5,7 @@ from src.drawdown.meanrev import DrawdownMeanRevStrategy
 from src.drawdown.strategy import DrawdownCrossMAStrategy
 from src.exchange.adapter import ExchangeAdapter
 from src.funding.strategy import FundingStrategy
-from src.universe import Universe
+from src.instrument.universe import Universe
 from src.strategy.adapter import StrategyAdapter
 
 
