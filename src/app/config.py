@@ -171,10 +171,11 @@ class FundingConfig(Config):
 
 
 @dataclass
-class SetupConfig(Config):
+class StrategyConfig(Config):
     instrument: str = ""
     leverage: int = 1
     strategy: str = "drawdown_crossma"
+    data_source: str = "trade"
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     crossma: CrossMAConfig = field(default_factory=CrossMAConfig)
     drawdown: DrawdownConfig = field(default_factory=DrawdownConfig)

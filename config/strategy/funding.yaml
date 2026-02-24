@@ -1,5 +1,6 @@
 instrument: BTC-USDT-SWAP
 strategy: funding
+data_source: funding
 
 funding:
   min_funding_rate: 0.0001

@@ -1,15 +1,10 @@
 instrument: ETH-USDT-SWAP
+strategy: drawdown_crossma
 
 backtest:
   depth:
     hour: 5
     minute: 30
-
-
-crossma:
-  short_length: 6
-  long_length: 12
-  bucket_interval: 5m
 
 drawdown:
   window: 100000
@@ -17,3 +12,8 @@ drawdown:
     0.0: 1.0
     0.02: 0.2
     0.05: 0.01
+
+crossma:
+  short_length: 6
+  long_length: 12
+  bucket_interval: 5m

@@ -9,12 +9,10 @@ from src.app.config import (
 from src.app.logger import init_logger
 from src.clickhouse.client import ClickHouseClient
 from src.clickhouse.recorder import ClickHouseRecorder
-from src.drawdown.strategy import DrawdownCrossMAStrategy
-from src.drawdown.meanrev import DrawdownMeanRevStrategy
-from src.funding.strategy import FundingBacktestStrategy
 from src.exchange.simulator import SimulateExchange
 from src.okx.client import OkxClient
 from src.okx.exchange import OkxExchange
+from src.strategy.factory import StrategyFactory
 
 
 class AppProvider:
@@ -32,8 +30,8 @@ class AppProvider:
             passphrase=okx_cfg.passphrase,
             demo=okx_cfg.demo,
         )
-        self.simulator = SimulateExchange()
         self.okx_exchange = OkxExchange(okx_client=self.okx_client, logger=self.logger)
+        self.simulator = SimulateExchange()
 
         self.clickhouse_client = None
         if ch_cfg.enabled:
@@ -57,15 +55,8 @@ class AppProvider:
             clickhouse_client=self.clickhouse_client,
             session_id=self.session_id,
         )
-        self.drawdown_crossma = DrawdownCrossMAStrategy(
-            recorder=self.recorder,
-            logger=self.logger,
-        )
-        self.drawdown_meanrev = DrawdownMeanRevStrategy(
-            recorder=self.recorder,
-            logger=self.logger,
-        )
-        self.funding = FundingBacktestStrategy(
+
+        self.strategy_factory = StrategyFactory(
             recorder=self.recorder,
             logger=self.logger,
         )

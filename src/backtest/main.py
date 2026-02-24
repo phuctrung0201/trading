@@ -1,7 +1,7 @@
 import argparse
 from collections.abc import Iterator
 
-from src.app.config import load_config, SetupConfig
+from src.app.config import load_config, StrategyConfig
 from src.app.provider import AppProvider
 from src.backtest.app import BacktestApp
 from src.exchange.dto import FundingSnapshot
@@ -10,11 +10,11 @@ from src.exchange.simulator import SimulateExchange
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run backtest")
-    parser.add_argument("--setup", type=str, required=True, help="Setup name from config/backtest/")
+    parser.add_argument("--setup", type=str, required=True, help="Setup name from config/strategy/")
     return parser.parse_args()
 
 
-def _build_trade_source(provider: AppProvider, setup):
+def _build_trade_source(provider: AppProvider, setup: StrategyConfig):
     bt = setup.backtest
     dataset = bt.dataset
     if dataset:
@@ -46,7 +46,7 @@ def _fetch_candle_close(pool, inst_id: str, ts: int) -> float:
     return 0.0
 
 
-def _build_funding_source(provider: AppProvider, setup) -> Iterator[FundingSnapshot]:
+def _build_funding_source(provider: AppProvider, setup: StrategyConfig) -> Iterator[FundingSnapshot]:
     """Fetch historical funding rate snapshots from OKX for the configured instrument."""
     pool = provider.okx_client.pool
     perp_id = setup.instrument
@@ -85,84 +85,63 @@ def _build_funding_source(provider: AppProvider, setup) -> Iterator[FundingSnaps
         )
 
 
+def _run_funding(app: BacktestApp, provider: AppProvider, setup: StrategyConfig):
+    total = 0
+    for snapshot in _build_funding_source(provider, setup):
+        total += 1
+        try:
+            app.strategy.ack_funding(snapshot)
+        except Exception as exc:
+            app.logger.error(
+                f"Strategy ack_funding failed timestamp={snapshot.timestamp} "
+                f"rate={snapshot.funding_rate} total_processed={total}: {exc}",
+                exc_info=True,
+            )
+            raise
+    return total
+
+
+def _run_trade(app: BacktestApp, provider: AppProvider, setup: StrategyConfig):
+    total = 0
+    for trade in _build_trade_source(provider, setup):
+        total += 1
+        try:
+            app.exchange.set_price(trade.price)
+            app.strategy.ack_trade(trade)
+        except Exception as exc:
+            app.logger.error(
+                f"Strategy ack_trade failed timestamp={trade.timestamp} "
+                f"price={trade.price} total_processed={total}: {exc}",
+                exc_info=True,
+            )
+            raise
+    return total
+
+
 def main():
     args = parse_args()
     provider = AppProvider()
-    setup = load_config("backtest", args.setup, SetupConfig)
-
-    bt = setup.backtest
-    is_funding = setup.strategy == "funding"
+    setup = load_config("strategy", args.setup, StrategyConfig)
 
     provider.simulator = SimulateExchange(
-        initial_equity=setup.funding.notional if is_funding else bt.initial_equity,
-        fee_rate=0.0 if is_funding else bt.fee_rate,
+        initial_equity=setup.funding.notional if setup.data_source == "funding" else setup.backtest.initial_equity,
+        fee_rate=0.0 if setup.data_source == "funding" else setup.backtest.fee_rate,
     )
-
-    if not is_funding:
-        provider.okx_exchange.bootstrap(
-            instrument=setup.instrument, leverage=setup.leverage,
-        )
 
     provider.recorder.bootstrap(
         setup_name=args.setup, instrument=setup.instrument,
         strategy=setup.strategy,
     )
 
-    if is_funding:
-        strategy = provider.funding
-        strategy.bootstrap(exchange=provider.simulator, config=setup.funding)
-    elif setup.strategy == "drawdown_meanrev":
-        strategy = provider.drawdown_meanrev
-        strategy.bootstrap(
-            exchange=provider.simulator,
-            bucket_interval=setup.meanrev.bucket_interval,
-            window=setup.drawdown.window,
-            threshold_scale_map=setup.drawdown.threshold_scale_map,
-            lookback=setup.meanrev.lookback,
-            entry_threshold=setup.meanrev.entry_threshold,
-            exit_threshold=setup.meanrev.exit_threshold,
-        )
-    else:
-        strategy = provider.drawdown_crossma
-        strategy.bootstrap(
-            exchange=provider.simulator,
-            short_length=setup.crossma.short_length,
-            long_length=setup.crossma.long_length,
-            bucket_interval=setup.crossma.bucket_interval,
-            window=setup.drawdown.window,
-            threshold_scale_map=setup.drawdown.threshold_scale_map,
-        )
-
-    app = BacktestApp(provider, strategy)
+    strategy = provider.strategy_factory.build(setup, exchange=provider.simulator)
+    app = BacktestApp(provider, strategy, provider.simulator)
     logger = app.logger
 
     try:
-        total = 0
-        if is_funding:
-            for snapshot in _build_funding_source(provider, setup):
-                total += 1
-                try:
-                    app.strategy.ack_funding(snapshot)
-                except Exception as exc:
-                    logger.error(
-                        f"Strategy ack_funding failed timestamp={snapshot.timestamp} "
-                        f"rate={snapshot.funding_rate} total_processed={total}: {exc}",
-                        exc_info=True,
-                    )
-                    raise
+        if setup.data_source == "funding":
+            total = _run_funding(app, provider, setup)
         else:
-            for trade in _build_trade_source(provider, setup):
-                total += 1
-                try:
-                    app.exchange.set_price(trade.price)
-                    app.strategy.ack_trade(trade)
-                except Exception as exc:
-                    logger.error(
-                        f"Strategy ack_trade failed timestamp={trade.timestamp} "
-                        f"price={trade.price} total_processed={total}: {exc}",
-                        exc_info=True,
-                    )
-                    raise
+            total = _run_trade(app, provider, setup)
 
         logger.info(f"Backtest completed total_steps={total}")
         if total == 0:
@@ -171,7 +150,7 @@ def main():
         logger.info(f"Backtest session_id {app.session_id}")
         logger.info(f"Final equity={app.exchange.get_equity():.4f}")
 
-        if is_funding:
+        if setup.data_source == "funding":
             res = strategy.results()
             logger.info(f"  Funding earned={res.funding_earned:.4f}")
             logger.info(f"  Rebalances={res.rebalance_count}")

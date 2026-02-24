@@ -2,13 +2,14 @@ from datetime import datetime, timezone
 
 from src.app.provider import AppProvider
 from src.clickhouse.measurement import OpsMeasurement
+from src.exchange.adapter import ExchangeAdapter
 
 
 class PaperApp:
-    def __init__(self, provider: AppProvider, strategy):
+    def __init__(self, provider: AppProvider, strategy, exchange: ExchangeAdapter):
         self.logger = provider.logger
         self.session_id = provider.session_id
-        self.exchange = provider.okx_exchange
+        self.exchange = exchange
         self.strategy = strategy
         self.recorder = provider.recorder
         self.clickhouse_client = provider.clickhouse_client

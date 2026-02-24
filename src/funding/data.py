@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.exchange.dto import FundingSnapshot
 from src.okx.pool import OkxClientPool
 
 
@@ -62,3 +63,19 @@ def get_prices(pool: OkxClientPool, spot_inst_id: str, perp_inst_id: str) -> Pri
     perp_price = float(perp_data[0]["markPx"])
 
     return PricePair(spot_price=spot_price, perp_price=perp_price)
+
+
+def fetch_funding_snapshot(pool: OkxClientPool, perp_inst_id: str) -> FundingSnapshot:
+    """Build a live FundingSnapshot from current OKX data."""
+    parts = perp_inst_id.split("-")
+    spot_inst_id = f"{parts[0]}-{parts[1]}" if len(parts) >= 2 else perp_inst_id
+
+    rate = get_funding_rate(pool, perp_inst_id)
+    prices = get_prices(pool, spot_inst_id, perp_inst_id)
+
+    return FundingSnapshot(
+        timestamp=rate.next_funding_time,
+        funding_rate=rate.rate,
+        spot_price=prices.spot_price,
+        perp_price=prices.perp_price,
+    )

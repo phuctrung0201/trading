@@ -341,6 +341,7 @@ class StrategyAdapter:
     def ack_trade(self, trade: MarketTrade):
         raise NotImplementedError
 
+    @abstractmethod
     def ack_funding(self, snapshot: FundingSnapshot):
         raise NotImplementedError
 

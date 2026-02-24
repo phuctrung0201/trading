@@ -32,8 +32,8 @@ class BacktestResult:
     positions_closed: int
 
 
-class FundingBacktestStrategy(StrategyAdapter):
-    """Simulates the funding capture strategy on historical 8h snapshots.
+class FundingStrategy(StrategyAdapter):
+    """Funding capture strategy on 8h snapshots (backtest or live).
 
     Extends StrategyAdapter to share the same infrastructure as other
     strategies: Recorder for ClickHouse events, SimulateExchange for

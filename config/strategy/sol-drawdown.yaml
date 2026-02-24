@@ -1,21 +1,21 @@
 instrument: SOL-USDT-SWAP
+strategy: drawdown_meanrev
+leverage: 1
 
 backtest:
   dataset: SOL-TRADE-OKX
   fee_rate: 0.0005
   initial_equity: 1000.0
-  # depth:
-  #   hour: 5
-  #   minute: 30
 
 drawdown:
-  window: 200
+  window: 100000
   threshold_scale_map:
     0.0: 1.0
-    0.01: 0.05
+    0.01: 0.1
     0.05: 0.01
 
-crossma:
-  short_length: 12
-  long_length: 20
+meanrev:
+  lookback: 40000
+  entry_threshold: 2.0
+  exit_threshold: 0.5
   bucket_interval: 5m
