@@ -61,11 +61,7 @@ class AppProvider:
         self.strategy_factory = StrategyFactory(
             recorder=self.recorder,
             logger=self.logger,
-        )
-
-        self.universe = UniverseProvider(
-            instruments=self.okx_client.instruments,
-            logger=self.logger,
+            clickhouse=self.clickhouse_client,
         )
 
         self.funding = FundingRepo(
@@ -73,4 +69,10 @@ class AppProvider:
             instruments=self.okx_client.instruments,
             trades=self.okx_client.trades,
             logger=self.logger,
+        )
+
+        self.universe = UniverseProvider(
+            instruments=self.okx_client.instruments,
+            logger=self.logger,
+            funding=self.funding,
         )

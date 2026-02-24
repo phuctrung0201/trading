@@ -38,7 +38,7 @@ class StrategyAdapter:
         self._return_count: int = 0
         self._prev_equity: float = initial_equity
         self._last_reconcile_time: float = time.monotonic()
-        self._last_close_price: float = 0.0
+        self._last_price: float = 0.0
         self._ts_fast_path: str | None = None
 
     def _mark_to_market(self):
@@ -204,7 +204,7 @@ class StrategyAdapter:
             timestamp=self._measurement_timestamp(trade),
             event=event,
             equity=self.exchange.get_equity(),
-            close_price=self._last_close_price,
+            price=self._last_price,
             position_size=position_size,
             position_side=position_side,
             drawdown=dd,
@@ -264,7 +264,7 @@ class StrategyAdapter:
     def _emit_trade_measurement(self, trade: MarketTrade, result: SignalResult,
                                 drawdown: float | None = None,
                                 zscore: float | None = None):
-        self._last_close_price = trade.price
+        self._last_price = trade.price
         position_size = (
             float(self._current_position.size) if self._current_position is not None else 0.0
         )
@@ -281,7 +281,7 @@ class StrategyAdapter:
             sharpe_ratio=self._calculate_sharpe_ratio(),
             short_ema=result.short_ema,
             long_ema=result.long_ema,
-            close_price=self._last_close_price,
+            price=self._last_price,
             exposure_ratio=self._exposure_ratio,
             zscore=zscore,
         )
@@ -301,7 +301,7 @@ class StrategyAdapter:
             self.exchange.close(self._current_position)
             self._emit_event(
                 trade, "close", signal_result=result,
-                fill_price=self._last_close_price,
+                fill_price=trade.price,
                 pnl=close_pnl,
                 signal=result.signal,
                 reason=f"signal flip to {result.signal}",

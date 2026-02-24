@@ -5,10 +5,9 @@ from dataclasses import dataclass
 
 from src.app.logger import AppLogger
 from src.exchange.dto import FundingSnapshot
-from src.instrument.repo import InstrumentRepo, PricePair
+from src.instrument.repo import Instrument, InstrumentRepo, PricePair
 from src.okx.pool import OkxClientPool
 from src.trade.repo import TradeRepo
-from src.instrument.universe import Instrument
 
 __all__ = ["FundingRate", "FundingRepo", "PricePair"]
 
@@ -69,23 +68,29 @@ class FundingRepo:
             inst_id=perp_inst_id,
         )
 
-    def fetch_history(self, pair: str, perp_id: str) -> Iterator[FundingSnapshot]:
+    def fetch_history(
+        self, pair: str, perp_id: str, pool: OkxClientPool | None = None,
+    ) -> Iterator[FundingSnapshot]:
+        pool = pool or self._pool
         quote = perp_id.split("-")[1] if "-" in perp_id else "USDT"
         spot_id = f"{pair}-{quote}"
 
-        history = self.get_rate_history(perp_id, limit=100)
-        if not history:
+        data = pool.public_get(
+            "/api/v5/public/funding-rate-history",
+            params={"instId": perp_id, "limit": "100"},
+        )
+        if not data:
             self._logger.warning(f"No funding history for {perp_id}")
             return
 
-        history.sort(key=lambda r: int(r.get("fundingTime", 0)))
+        data.sort(key=lambda r: int(r.get("fundingTime", 0)))
 
-        for entry in history:
+        for entry in data:
             rate = float(entry.get("realizedRate", entry.get("fundingRate", "0")))
             ts = int(entry.get("fundingTime", 0))
 
-            spot_price = self._trades.fetch_candle_close(spot_id, "4H", ts)
-            perp_price = self._trades.fetch_candle_close(perp_id, "4H", ts)
+            spot_price = self._fetch_candle_close(pool, spot_id, "4H", ts)
+            perp_price = self._fetch_candle_close(pool, perp_id, "4H", ts)
 
             if spot_price <= 0 or perp_price <= 0:
                 continue
@@ -98,18 +103,43 @@ class FundingRepo:
                 inst_id=perp_id,
             )
 
-    def fetch_universe_history(
+    def fetch_funding_history(
         self, instruments: list[Instrument],
     ) -> Iterator[FundingSnapshot]:
         self._logger.info(
             f"Fetching funding history for {len(instruments)} instruments"
         )
 
+        results = self._pool.map(self._fetch_history_item, instruments)
+
         all_snapshots: list[FundingSnapshot] = []
-        for inst in instruments:
-            snapshots = list(self.fetch_history(inst.pair, inst.inst_id))
-            self._logger.info(f"  {inst.inst_id}: {len(snapshots)} snapshots")
+        for snapshots in results:
             all_snapshots.extend(snapshots)
 
         all_snapshots.sort(key=lambda s: (s.timestamp, s.inst_id))
         yield from all_snapshots
+
+    def _fetch_history_item(
+        self, pool: OkxClientPool, inst: Instrument,
+    ) -> list[FundingSnapshot]:
+        snapshots = list(self.fetch_history(inst.pair, inst.inst_id, pool))
+        self._logger.info(f"  {inst.inst_id}: {len(snapshots)} snapshots")
+        return snapshots
+
+    @staticmethod
+    def _fetch_candle_close(
+        pool: OkxClientPool, inst_id: str, bar: str, ts: int,
+    ) -> float:
+        params = {"instId": inst_id, "bar": bar, "after": str(ts + 1), "limit": "1"}
+        try:
+            candles = pool.public_get("/api/v5/market/candles", params=params)
+            if candles:
+                return float(candles[0][4])
+            candles = pool.public_get(
+                "/api/v5/market/history-candles", params=params,
+            )
+            if candles:
+                return float(candles[0][4])
+        except Exception:
+            pass
+        return 0.0

@@ -110,10 +110,23 @@ class MeanRevConfig(Config):
 
 
 @dataclass
+class MinVolUsdConfig(Config):
+    depth_hours: int = 24
+    value: float = 10_000_000
+
+
+@dataclass
+class MinFrTotalConfig(Config):
+    depth_days: int = 30
+    value: float = 0.0001
+
+
+@dataclass
 class UniverseConfig(Config):
     quote: str = "USDT"
     type: str = "SWAP"
-    min_24h_volume_usd: float = 10_000_000
+    min_vol_usd: MinVolUsdConfig = field(default_factory=MinVolUsdConfig)
+    min_fr_total: MinFrTotalConfig | None = None
 
 
 @dataclass
@@ -154,7 +167,10 @@ class PortfolioConfig(Config):
 @dataclass
 class FundingConfig(Config):
     min_funding_rate: float = 0.0001
+    exit_funding_rate: float = 0.0
+    min_hold_periods: int = 0
     drift_band: float = 0.01
+    fee_rate: float = 0.0002
     exit_rule: str = "flip_or_collapse"
     notional: float = 1000.0
     retry_count: int = 3

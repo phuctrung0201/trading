@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from src.okx.pool import OkxClientPool
 
 
+@dataclass(frozen=True)
+class Instrument:
+    pair: str
+    inst_id: str
+
+
 @dataclass
 class PricePair:
     spot_price: float

@@ -49,7 +49,7 @@ class DrawdownStrategy(BucketStrategy):
                 self.exchange.close(self._current_position)
                 self._emit_event(
                     trade, "close", signal_result=result,
-                    fill_price=self._last_close_price,
+                    fill_price=trade.price,
                     pnl=close_pnl,
                     signal="EXIT",
                     reason="signal EXIT",
@@ -73,7 +73,7 @@ class DrawdownStrategy(BucketStrategy):
                 self.exchange.close(self._current_position)
                 self._emit_event(
                     trade, "close", signal_result=result,
-                    fill_price=self._last_close_price,
+                    fill_price=trade.price,
                     pnl=close_pnl,
                     signal=result.signal,
                     reason=f"signal flip to {result.signal}",
@@ -131,7 +131,7 @@ class DrawdownStrategy(BucketStrategy):
             self.exchange.close(self._current_position)
             self._emit_event(
                 trade, "close", signal_result=result,
-                fill_price=self._last_close_price,
+                fill_price=trade.price,
                 pnl=close_pnl,
                 reason=f"resize close old_scale={old_scale:.4f}",
                 drawdown=drawdown,

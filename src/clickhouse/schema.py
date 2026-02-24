@@ -10,7 +10,7 @@ _TRADE_EVENT_COLUMNS = [
     ("indicator", "Nullable(String)", pa.string()),
     ("event", "Nullable(String)", pa.string()),
     ("equity", "Float64", pa.float64()),
-    ("close_price", "Float64", pa.float64()),
+    ("price", "Float64", pa.float64()),
     ("position_size", "Float64", pa.float64()),
     ("position_side", "String", pa.string()),
     ("short_ema", "Nullable(Float64)", pa.float64()),

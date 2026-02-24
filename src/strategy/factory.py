@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from src.app.config import StrategyConfig
 from src.app.logger import AppLogger
+from src.clickhouse.client import ClickHouseClient
 from src.clickhouse.recorder import Recorder
 from src.drawdown.meanrev import DrawdownMeanRevStrategy
 from src.drawdown.strategy import DrawdownCrossMAStrategy
@@ -10,9 +13,11 @@ from src.strategy.adapter import StrategyAdapter
 
 
 class StrategyFactory:
-    def __init__(self, recorder: Recorder, logger: AppLogger):
+    def __init__(self, recorder: Recorder, logger: AppLogger,
+                 clickhouse: ClickHouseClient | None = None):
         self._recorder = recorder
         self._logger = logger
+        self._clickhouse = clickhouse
 
     def build(
         self,
@@ -25,6 +30,7 @@ class StrategyFactory:
         if name == "funding":
             strategy = FundingStrategy(
                 recorder=self._recorder, logger=self._logger,
+                clickhouse=self._clickhouse,
             )
             strategy.bootstrap(
                 exchange=exchange, config=setup.funding,

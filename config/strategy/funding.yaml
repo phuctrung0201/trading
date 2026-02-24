@@ -4,10 +4,18 @@ data_source: funding
 universe:
   quote: USDT
   type: SWAP
-  min_24h_volume_usd: 100_000_000
+  min_vol_usd:
+    depth_hours: 24
+    value: 1_000_000
+  min_fr_total:
+    depth_days: 30
+    value: 0.05
 
 funding:
-  min_funding_rate: 0.0001
+  min_funding_rate: 0.01
+  exit_funding_rate: 0.001
+  min_hold_periods: 3
   drift_band: 0.01
+  fee_rate: 0.005
   notional: 1000.0
   retry_count: 3

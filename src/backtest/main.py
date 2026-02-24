@@ -28,7 +28,7 @@ def _build_trade_source(provider: AppProvider, setup: StrategyConfig):
 
 def _run_funding(app: BacktestApp, provider: AppProvider, universe: Universe):
     total = 0
-    for snapshot in provider.funding.fetch_universe_history(universe.instruments):
+    for snapshot in provider.funding.fetch_funding_history(universe.instruments):
         total += 1
         try:
             app.strategy.ack_funding(snapshot)

@@ -1,7 +1,9 @@
 universe:
   quote: USDT
   type: SWAP
-  min_24h_volume_usd: 10_000_000
+  min_vol_usd:
+    depth_hours: 24
+    value: 10_000_000
 
 screening:
   bucket_interval: 5m

@@ -11,7 +11,7 @@ class TradeMeasurement:
     sharpe_ratio: float
     short_ema: float | None = None
     long_ema: float | None = None
-    close_price: float | None = None
+    price: float | None = None
     exposure_ratio: float = 1.0
     zscore: float | None = None
 
@@ -28,8 +28,8 @@ class TradeMeasurement:
             result["short_ema"] = float(self.short_ema)
         if self.long_ema is not None:
             result["long_ema"] = float(self.long_ema)
-        if self.close_price is not None:
-            result["close_price"] = float(self.close_price)
+        if self.price is not None:
+            result["price"] = float(self.price)
         if self.zscore is not None:
             result["zscore"] = float(self.zscore)
         return result
@@ -40,7 +40,7 @@ class TradeEventMeasurement:
     timestamp: int | None
     event: str
     equity: float
-    close_price: float | None
+    price: float | None
     position_size: float
     position_side: str
     drawdown: float
@@ -65,8 +65,8 @@ class TradeEventMeasurement:
             "sharpe_ratio": float(self.sharpe_ratio),
             "exposure_ratio": float(self.exposure_ratio),
         }
-        if self.close_price is not None:
-            result["close_price"] = float(self.close_price)
+        if self.price is not None:
+            result["price"] = float(self.price)
         if self.short_ema is not None:
             result["short_ema"] = float(self.short_ema)
         if self.long_ema is not None:

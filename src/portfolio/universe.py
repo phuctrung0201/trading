@@ -60,7 +60,6 @@ class UniverseFetcher:
     def fetch(self) -> list[TradeInstrument]:
         universe = Universe.discover(
             self._instruments, self._cfg, self._logger,
-            top_n=200,
         )
         self._logger.info(f"Universe after volume filter: {len(universe)}")
 

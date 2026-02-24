@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from src.app.config import FundingConfig
 from src.app.logger import AppLogger
+from src.clickhouse.client import ClickHouseClient
 from src.clickhouse.recorder import Recorder
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import FundingSnapshot, MarketTrade, Position
@@ -41,18 +42,20 @@ class FundingStrategy(StrategyAdapter):
     share of the configured notional (``notional / universe_size``).
     """
 
-    def __init__(self, recorder: Recorder, logger: AppLogger):
+    def __init__(self, recorder: Recorder, logger: AppLogger,
+                 clickhouse: ClickHouseClient | None = None):
         super().__init__(recorder=recorder, logger=logger)
+        self._ch = clickhouse
         self._config: FundingConfig | None = None
         self._universe: Universe = Universe([])
         self._positions: dict[str, SimPosition] = {}
+        self._hold_counts: dict[str, int] = {}
         self._funding_earned: float = 0.0
         self._rebalance_count: int = 0
         self._step_count: int = 0
         self._positions_opened: int = 0
         self._positions_closed: int = 0
         self._max_drawdown: float = 0.0
-        self._fee_rate: float = 0.001
         self._initial_equity: float = 0.0
 
     def bootstrap(
@@ -63,6 +66,7 @@ class FundingStrategy(StrategyAdapter):
     ):
         super().bootstrap(exchange)
         self._config = config
+        self._fee_rate = config.fee_rate
         self._initial_equity = config.notional
         self._universe = universe
 
@@ -81,6 +85,7 @@ class FundingStrategy(StrategyAdapter):
 
         if pos is not None:
             self._collect_funding(pos, snapshot, trade)
+            self._hold_counts[inst_id] = self._hold_counts.get(inst_id, 0) + 1
 
         if pos is not None:
             if self._should_exit(pos, snapshot):
@@ -89,6 +94,10 @@ class FundingStrategy(StrategyAdapter):
                 self._manage(pos, snapshot, trade)
         elif self._should_enter(snapshot):
             self._enter(inst_id, snapshot, trade)
+
+        pos = self._positions.get(inst_id)
+        if pos is not None:
+            self._write_monitor(pos, snapshot)
 
         self._sync_aggregate_position()
         self._track_max_drawdown()
@@ -139,7 +148,12 @@ class FundingStrategy(StrategyAdapter):
             perp_entry_price=snap.perp_price,
             entry_rate=snap.funding_rate,
         )
+        self._hold_counts[inst_id] = 0
         self._positions_opened += 1
+
+        pair = inst_id.split("-")[0] if "-" in inst_id else inst_id
+        self._write_screen(pair, inst_id, direction, snap.funding_rate, snap.timestamp)
+
         self._logger.info(
             f"enter {inst_id} dir={direction} notional={notional:.2f} "
             f"rate={snap.funding_rate:.6f}"
@@ -164,11 +178,15 @@ class FundingStrategy(StrategyAdapter):
         self.exchange.adjust_equity(payment)
 
     def _should_exit(self, pos: SimPosition, snap: FundingSnapshot) -> bool:
+        hold = self._hold_counts.get(pos.pair, 0)
+        if hold < self._config.min_hold_periods:
+            return False
         if pos.direction == "long_spot" and snap.funding_rate < 0:
             return True
         if pos.direction == "short_spot" and snap.funding_rate > 0:
             return True
-        if abs(snap.funding_rate) < self._config.min_funding_rate:
+        exit_rate = self._config.exit_funding_rate or self._config.min_funding_rate
+        if abs(snap.funding_rate) < exit_rate:
             return True
         return False
 
@@ -189,6 +207,7 @@ class FundingStrategy(StrategyAdapter):
 
         self._positions_closed += 1
         del self._positions[inst_id]
+        self._hold_counts.pop(inst_id, None)
         self._logger.info(
             f"exit {inst_id} basis_pnl={basis_pnl:.2f} fee={fee:.2f} "
             f"equity={self.exchange.get_equity():.2f}"
@@ -248,3 +267,32 @@ class FundingStrategy(StrategyAdapter):
         dd = self._calculate_drawdown()
         if dd < self._max_drawdown:
             self._max_drawdown = dd
+
+    def _write_screen(self, pair: str, inst_id: str, direction: str,
+                      funding_rate: float, timestamp: int) -> None:
+        if self._ch is None:
+            return
+        self._ch.write("funding_screen", {
+            "session_id": self.recorder.session_id,
+            "pair": pair,
+            "inst_id": inst_id,
+            "direction": direction,
+            "funding_rate": funding_rate,
+            "timestamp": timestamp,
+        })
+
+    def _write_monitor(self, pos: SimPosition, snap: FundingSnapshot) -> None:
+        if self._ch is None:
+            return
+        spot_notional = pos.spot_qty * snap.spot_price
+        perp_notional = pos.perp_qty * snap.perp_price
+        drift = abs(spot_notional - perp_notional)
+        self._ch.write("funding_monitor", {
+            "pair": pos.pair,
+            "direction": pos.direction,
+            "spot_notional": spot_notional,
+            "perp_notional": perp_notional,
+            "drift": drift,
+            "current_funding_rate": snap.funding_rate,
+            "timestamp": snap.timestamp,
+        })
