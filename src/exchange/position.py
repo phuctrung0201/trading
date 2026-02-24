@@ -54,6 +54,9 @@ class PositionTracker:
         self._equity_at_open = 0.0
         return pnl
 
+    def adjust_equity(self, delta: float):
+        self.asset += delta
+
     def get_asset(self, asset: str) -> float:
         _ = asset
         return self.asset

@@ -20,7 +20,7 @@ class DrawdownMeanRevStrategy(MeanRevStrategy):
                           entry_threshold, exit_threshold)
         self._dd.bootstrap_drawdown(window, threshold_scale_map)
 
-    def ack(self, trade: MarketTrade):
+    def ack_trade(self, trade: MarketTrade):
         self.exchange.set_price(trade.price)
         self._mark_to_market()
         self.reconcile()

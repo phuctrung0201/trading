@@ -22,3 +22,11 @@ class OpenResult:
     success: bool
     position: Position | None = None
     message: str | None = None
+
+
+@dataclass
+class FundingSnapshot:
+    timestamp: int
+    funding_rate: float
+    spot_price: float
+    perp_price: float

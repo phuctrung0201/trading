@@ -11,6 +11,7 @@ from src.clickhouse.client import ClickHouseClient
 from src.clickhouse.recorder import ClickHouseRecorder
 from src.drawdown.strategy import DrawdownCrossMAStrategy
 from src.drawdown.meanrev import DrawdownMeanRevStrategy
+from src.funding.strategy import FundingBacktestStrategy
 from src.exchange.simulator import SimulateExchange
 from src.okx.client import OkxClient
 from src.okx.exchange import OkxExchange
@@ -61,6 +62,10 @@ class AppProvider:
             logger=self.logger,
         )
         self.drawdown_meanrev = DrawdownMeanRevStrategy(
+            recorder=self.recorder,
+            logger=self.logger,
+        )
+        self.funding = FundingBacktestStrategy(
             recorder=self.recorder,
             logger=self.logger,
         )

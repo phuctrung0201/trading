@@ -22,6 +22,9 @@ class SimulateExchange(ExchangeAdapter):
         self._tracker.close()
         return True
 
+    def adjust_equity(self, delta: float):
+        self._tracker.adjust_equity(delta)
+
     def get_asset(self, asset: str) -> float:
         return self._tracker.get_asset(asset)
 

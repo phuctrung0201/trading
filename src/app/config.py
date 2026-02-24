@@ -159,6 +159,18 @@ class PortfolioConfig(Config):
 
 
 @dataclass
+class FundingConfig(Config):
+    min_funding_rate: float = 0.0001
+    drift_band: float = 0.01
+    exit_rule: str = "flip_or_collapse"
+    notional: float = 1000.0
+    retry_count: int = 3
+    universe: UniverseConfig = field(default_factory=lambda: UniverseConfig(
+        quote="USDT", type="SWAP", min_24h_volume_usd=10_000_000,
+    ))
+
+
+@dataclass
 class SetupConfig(Config):
     instrument: str = ""
     leverage: int = 1
@@ -169,3 +181,4 @@ class SetupConfig(Config):
     meanrev: MeanRevConfig = field(default_factory=lambda: MeanRevConfig(
         lookback=100, entry_threshold=2.0, exit_threshold=0.5,
     ))
+    funding: FundingConfig = field(default_factory=FundingConfig)

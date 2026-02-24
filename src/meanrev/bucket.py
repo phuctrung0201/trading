@@ -30,7 +30,7 @@ class MeanRevStrategy(BucketStrategy):
     def meanrev(self) -> MeanRevIndicator:
         return self._meanrev
 
-    def ack(self, trade: MarketTrade):
+    def ack_trade(self, trade: MarketTrade):
         self.exchange.set_price(trade.price)
         self._mark_to_market()
         self.reconcile()

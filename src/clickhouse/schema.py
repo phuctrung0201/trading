@@ -89,6 +89,32 @@ _PORTFOLIO_RANKING_COLUMNS = [
     ("volatility", "Float64", pa.float64()),
 ]
 
+_FUNDING_SESSION_COLUMNS = [
+    ("session_id", "String", pa.string()),
+    ("timestamp", "DateTime64(3, 'UTC')", pa.timestamp("ms", tz="UTC")),
+    ("status", "String", pa.string()),
+    ("error_message", "Nullable(String)", pa.string()),
+]
+
+_FUNDING_SCREEN_COLUMNS = [
+    ("session_id", "String", pa.string()),
+    ("pair", "String", pa.string()),
+    ("inst_id", "String", pa.string()),
+    ("direction", "String", pa.string()),
+    ("funding_rate", "Float64", pa.float64()),
+    ("timestamp", "DateTime64(3, 'UTC')", pa.timestamp("ms", tz="UTC")),
+]
+
+_FUNDING_MONITOR_COLUMNS = [
+    ("pair", "String", pa.string()),
+    ("direction", "String", pa.string()),
+    ("spot_notional", "Float64", pa.float64()),
+    ("perp_notional", "Float64", pa.float64()),
+    ("drift", "Float64", pa.float64()),
+    ("current_funding_rate", "Float64", pa.float64()),
+    ("timestamp", "DateTime64(3, 'UTC')", pa.timestamp("ms", tz="UTC")),
+]
+
 TABLES: dict[str, dict] = {
     "trade_event": {
         "columns": _TRADE_EVENT_COLUMNS,
@@ -117,6 +143,21 @@ TABLES: dict[str, dict] = {
     "portfolio_ranking": {
         "columns": _PORTFOLIO_RANKING_COLUMNS,
         "order_by": "(session_id, rank)",
+    },
+    "funding_session": {
+        "columns": _FUNDING_SESSION_COLUMNS,
+        "order_by": "(session_id)",
+        "engine": "ReplacingMergeTree(timestamp)",
+    },
+    "funding_screen": {
+        "columns": _FUNDING_SCREEN_COLUMNS,
+        "order_by": "(session_id, pair)",
+        "partition_by": "toDate(timestamp)",
+    },
+    "funding_monitor": {
+        "columns": _FUNDING_MONITOR_COLUMNS,
+        "order_by": "(pair, timestamp)",
+        "partition_by": "toDate(timestamp)",
     },
 }
 

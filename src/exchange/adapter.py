@@ -33,6 +33,9 @@ class ExchangeAdapter(ABC):
     def unrealized_pnl(self) -> float:
         raise NotImplementedError
 
+    def adjust_equity(self, delta: float):
+        raise NotImplementedError
+
     def stream_history(self, depth_sec: int) -> Iterator[MarketTrade]:
         raise NotImplementedError
 

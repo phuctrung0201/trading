@@ -58,7 +58,7 @@ def main():
                 total += 1
                 try:
                     app.exchange.set_price(trade.price)
-                    app.strategy.ack(trade)
+                    app.strategy.ack_trade(trade)
                     app.emit_tick_ops()
                 except Exception as exc:
                     logger.error(

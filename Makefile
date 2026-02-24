@@ -1,4 +1,4 @@
-.PHONY: migrate migrate-dry paper paper-stop paper-status paper-logs backtest backtest-all ingest monitor monitor-down monitor-logs
+.PHONY: migrate migrate-dry paper paper-stop paper-status paper-logs backtest backtest-all funding ingest monitor monitor-down monitor-logs
 
 migrate:
 	python -m src.migration.main
@@ -36,6 +36,9 @@ backtest-all:
 
 portfolio:
 	python -m src.portfolio.main
+
+funding:
+	python -m src.funding.main
 
 ingest:
 	python -m src.ingest.main --name $(name) --instrument $(instrument) --start $(start) --end $(end)

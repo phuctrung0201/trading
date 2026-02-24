@@ -6,7 +6,7 @@ from typing import Any
 
 from src.app.logger import AppLogger
 from src.exchange.adapter import ExchangeAdapter
-from src.exchange.dto import MarketTrade, Position
+from src.exchange.dto import FundingSnapshot, MarketTrade, Position
 from src.clickhouse.recorder import Recorder
 from src.clickhouse.measurement import TradeMeasurement, TradeEventMeasurement, OpsMeasurement
 
@@ -338,7 +338,10 @@ class StrategyAdapter:
                 )
 
     @abstractmethod
-    def ack(self, trade: MarketTrade):
+    def ack_trade(self, trade: MarketTrade):
+        raise NotImplementedError
+
+    def ack_funding(self, snapshot: FundingSnapshot):
         raise NotImplementedError
 
 

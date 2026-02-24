@@ -39,6 +39,38 @@
         "current": {},
         "refresh": 1,
         "definition": "SELECT DISTINCT setup FROM trading.trade_event ORDER BY setup DESC"
+      },
+      {
+        "name": "funding_session",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "query": {
+          "queryType": "sql",
+          "rawSql": "SELECT session_id FROM trading.funding_session FINAL WHERE status != 'RUNNING' ORDER BY timestamp DESC"
+        },
+        "sort": 0,
+        "multi": true,
+        "includeAll": false,
+        "label": "Funding Session",
+        "current": {},
+        "refresh": 1,
+        "definition": "SELECT session_id FROM trading.funding_session FINAL WHERE status != 'RUNNING' ORDER BY timestamp DESC"
+      },
+      {
+        "name": "pair",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "query": {
+          "queryType": "sql",
+          "rawSql": "SELECT DISTINCT pair FROM trading.funding_monitor ORDER BY pair"
+        },
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "label": "Pair",
+        "current": {},
+        "refresh": 1,
+        "definition": "SELECT DISTINCT pair FROM trading.funding_monitor ORDER BY pair"
       }
     ]
   },
@@ -129,6 +161,27 @@
       }
     },
     {
+      "id": 16,
+      "title": "PnL",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT sum(pnl) AS total_pnl FROM trading.trade_event WHERE event = 'close' AND pnl IS NOT NULL AND session_id IN ($session_id) AND setup IN ($setup)",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0 }, { "color": "green", "value": 1 }] }
+        }
+      }
+    },
+    {
       "id": 10,
       "title": "Equity",
       "type": "timeseries",
@@ -168,6 +221,27 @@
       ],
       "fieldConfig": {
         "defaults": { "unit": "percent", "color": { "mode": "fixed", "fixedColor": "red" }, "custom": { "fillOpacity": 20, "lineWidth": 1 } }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Sharpe Ratio",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "interval": "1m",
+      "targets": [
+        {
+          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, session_id, argMax(sharpe_ratio, timestamp) AS sharpe FROM trading.trade_event WHERE event IS NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, session_id ORDER BY t",
+          "refId": "A",
+          "format": 0
+        }
+      ],
+      "transformations": [
+        { "id": "renameByRegex", "options": { "regex": "(.+) (.+)", "renamePattern": "$2" } }
+      ],
+      "fieldConfig": {
+        "defaults": { "decimals": 3, "custom": { "lineWidth": 1 }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 1.0 }] } }
       }
     },
     {
@@ -220,13 +294,7 @@
         }
       ],
       "transformations": [
-        {
-          "id": "renameByRegex",
-          "options": {
-            "regex": ".+ (.+)",
-            "renamePattern": "$1"
-          }
-        }
+        { "id": "renameByRegex", "options": { "regex": ".+ (.+)", "renamePattern": "$1" } }
       ]
     },
     {
@@ -256,52 +324,10 @@
       }
     },
     {
-      "id": 14,
-      "title": "Sharpe Ratio",
-      "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 12 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
-      "interval": "1m",
-      "targets": [
-        {
-          "rawSql": "SELECT toStartOfInterval(timestamp, INTERVAL $__interval_ms millisecond) AS t, session_id, argMax(sharpe_ratio, timestamp) AS sharpe FROM trading.trade_event WHERE event IS NULL AND timestamp >= $__fromTime AND timestamp <= $__toTime AND session_id IN ($session_id) AND setup IN ($setup) GROUP BY t, session_id ORDER BY t",
-          "refId": "A",
-          "format": 0
-        }
-      ],
-      "transformations": [
-        { "id": "renameByRegex", "options": { "regex": "(.+) (.+)", "renamePattern": "$2" } }
-      ],
-      "fieldConfig": {
-        "defaults": { "decimals": 3, "custom": { "lineWidth": 1 }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 1.0 }] } }
-      }
-    },
-    {
-      "id": 16,
-      "title": "PnL",
-      "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
-      "targets": [
-        {
-          "rawSql": "SELECT sum(pnl) AS total_pnl FROM trading.trade_event WHERE event = 'close' AND pnl IS NOT NULL AND session_id IN ($session_id) AND setup IN ($setup)",
-          "refId": "A",
-          "format": 1
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "decimals": 2,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0 }, { "color": "green", "value": 1 }] }
-        }
-      }
-    },
-    {
       "id": 17,
       "title": "Trade Event Log",
       "type": "table",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 42 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
@@ -323,7 +349,7 @@
       "id": 21,
       "title": "API Latency",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 50 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 44 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
@@ -344,7 +370,7 @@
       "id": 22,
       "title": "API Response Log",
       "type": "table",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 50 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 44 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
@@ -358,7 +384,7 @@
       "id": 25,
       "title": "Candle Lag",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 56 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 50 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
@@ -379,7 +405,7 @@
       "id": 26,
       "title": "Write Buffer Size",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 56 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 50 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "interval": "1m",
       "targets": [
@@ -400,7 +426,7 @@
       "id": 23,
       "title": "Reconciliation Log",
       "type": "table",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 62 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 56 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
@@ -414,7 +440,7 @@
       "id": 24,
       "title": "Error Log",
       "type": "table",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 62 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 56 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "targets": [
         {
@@ -423,6 +449,281 @@
           "format": 1
         }
       ]
+    },
+
+    {
+      "id": 100,
+      "title": "Funding Capture",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 62 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 101,
+      "title": "Funding Session Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 63 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT status FROM trading.funding_session FINAL WHERE session_id IN ($funding_session) AND status != 'RUNNING' ORDER BY timestamp DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "SUCCESS": { "color": "green", "text": "SUCCESS" },
+                "FAILED": { "color": "red", "text": "FAILED" }
+              }
+            }
+          ],
+          "thresholds": { "steps": [{ "color": "blue", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 102,
+      "title": "Candidates",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 63 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT count() FROM trading.funding_screen WHERE session_id IN ($funding_session)",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } }
+      }
+    },
+    {
+      "id": 103,
+      "title": "Active Positions",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 63 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT count(DISTINCT pair) FROM trading.funding_monitor WHERE timestamp >= now() - INTERVAL 1 DAY",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } }
+      }
+    },
+    {
+      "id": 104,
+      "title": "Avg Funding Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 63 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT round(avg(funding_rate) * 100, 4) FROM trading.funding_screen WHERE session_id IN ($funding_session)",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 4,
+          "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0.005 }] }
+        }
+      }
+    },
+    {
+      "id": 110,
+      "title": "Screening Results",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 67 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT pair, inst_id, direction, funding_rate, timestamp FROM trading.funding_screen WHERE session_id IN ($funding_session) ORDER BY abs(funding_rate) DESC",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "filterable": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "funding_rate" }, "properties": [{ "id": "decimals", "value": 6 }] },
+          {
+            "matcher": { "id": "byName", "options": "direction" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "long_spot": { "color": "green", "text": "Long Spot" },
+                      "short_spot": { "color": "orange", "text": "Short Spot" }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 120,
+      "title": "Funding Rate Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 75 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT timestamp AS time, pair, current_funding_rate FROM trading.funding_monitor WHERE pair IN ($pair) AND timestamp >= $__fromTime AND timestamp <= $__toTime ORDER BY timestamp",
+          "refId": "A",
+          "format": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 6,
+          "unit": "percentunit",
+          "custom": { "lineWidth": 2, "pointSize": 4, "showPoints": "always", "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0 }] },
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 121,
+      "title": "Drift Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 75 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT timestamp AS time, pair, drift FROM trading.funding_monitor WHERE pair IN ($pair) AND timestamp >= $__fromTime AND timestamp <= $__toTime ORDER BY timestamp",
+          "refId": "A",
+          "format": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "unit": "currencyUSD",
+          "custom": { "lineWidth": 2, "pointSize": 4, "showPoints": "always", "fillOpacity": 10 },
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 130,
+      "title": "Notionals Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 83 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT timestamp AS time, concat(pair, ' spot') AS metric, spot_notional AS value FROM trading.funding_monitor WHERE pair IN ($pair) AND timestamp >= $__fromTime AND timestamp <= $__toTime UNION ALL SELECT timestamp AS time, concat(pair, ' perp') AS metric, perp_notional AS value FROM trading.funding_monitor WHERE pair IN ($pair) AND timestamp >= $__fromTime AND timestamp <= $__toTime ORDER BY time",
+          "refId": "A",
+          "format": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "unit": "currencyUSD",
+          "custom": { "lineWidth": 2, "pointSize": 4, "showPoints": "always" },
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 140,
+      "title": "Position Monitor",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 91 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT pair, direction, spot_notional, perp_notional, drift, current_funding_rate, timestamp FROM trading.funding_monitor WHERE timestamp >= $__fromTime AND timestamp <= $__toTime ORDER BY timestamp DESC LIMIT 100",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "filterable": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "spot_notional" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 2 }] },
+          { "matcher": { "id": "byName", "options": "perp_notional" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 2 }] },
+          { "matcher": { "id": "byName", "options": "drift" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 2 }] },
+          { "matcher": { "id": "byName", "options": "current_funding_rate" }, "properties": [{ "id": "decimals", "value": 6 }] },
+          {
+            "matcher": { "id": "byName", "options": "direction" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "long_spot": { "color": "green", "text": "Long Spot" },
+                      "short_spot": { "color": "orange", "text": "Short Spot" }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 150,
+      "title": "Funding Session History",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 99 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "rawSql": "SELECT timestamp, session_id, status, error_message FROM trading.funding_session FINAL WHERE status != 'RUNNING' AND timestamp >= $__fromTime AND timestamp <= $__toTime ORDER BY timestamp DESC",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "filterable": true } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "status" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "SUCCESS": { "color": "green", "text": "SUCCESS" },
+                      "FAILED": { "color": "red", "text": "FAILED" }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          }
+        ]
+      }
     }
   ],
   "schemaVersion": 39

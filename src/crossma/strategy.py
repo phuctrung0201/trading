@@ -59,7 +59,7 @@ class CrossMAStrategy(BucketStrategy):
         signal = self.compute_signal(short_ema, long_ema)
         return SignalResult(signal=signal, short_ema=short_ema, long_ema=long_ema)
 
-    def ack(self, trade: MarketTrade):
+    def ack_trade(self, trade: MarketTrade):
         self.exchange.set_price(trade.price)
         self._mark_to_market()
         self.reconcile()
