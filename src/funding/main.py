@@ -3,7 +3,7 @@ from src.app.config import (
     LoggerConfig,
     OkxConfig,
     ClickHouseConfig,
-    FundingConfig,
+    SetupConfig,
 )
 from src.app.logger import init_logger
 from src.clickhouse.client import ClickHouseClient
@@ -41,7 +41,8 @@ def main():
                 exc_info=True,
             )
 
-    funding_cfg = load_config("funding", "funding", FundingConfig)
+    setup_cfg = load_config("backtest", "funding", SetupConfig)
+    funding_cfg = setup_cfg.funding
 
     pipeline = FundingPipeline(
         pool=okx_client.pool,
