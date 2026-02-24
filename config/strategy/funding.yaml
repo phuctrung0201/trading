@@ -1,13 +1,13 @@
-instrument: BTC-USDT-SWAP
 strategy: funding
 data_source: funding
+
+universe:
+  quote: USDT
+  type: SWAP
+  min_24h_volume_usd: 100_000_000
 
 funding:
   min_funding_rate: 0.0001
   drift_band: 0.01
   notional: 1000.0
   retry_count: 3
-  universe:
-    quote: USDT
-    type: SWAP
-    min_24h_volume_usd: 10_000_000

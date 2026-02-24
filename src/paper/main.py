@@ -5,6 +5,7 @@ from src.app.config import load_config, StrategyConfig
 from src.app.provider import AppProvider
 from src.exchange.simulator import SimulateExchange
 from src.funding.data import fetch_funding_snapshot
+from src.universe import Universe
 from src.paper.app import PaperApp
 
 _FUNDING_POLL_SEC = 60
@@ -16,31 +17,34 @@ def parse_args():
     return parser.parse_args()
 
 
-def _run_funding(app: PaperApp, provider: AppProvider, setup: StrategyConfig):
+def _run_funding(app: PaperApp, provider: AppProvider, universe: Universe):
     logger = app.logger
     pool = provider.okx_client.pool
-    inst_id = setup.instrument
-    last_ts = None
+    last_ts: dict[str, int | None] = {i.inst_id: None for i in universe}
     total = 0
 
     while True:
-        try:
-            snapshot = fetch_funding_snapshot(pool, inst_id)
-        except Exception as exc:
-            logger.error(f"Funding fetch failed: {exc}", exc_info=True)
-            app.emit_error_ops(str(exc))
-            time.sleep(_FUNDING_POLL_SEC)
-            continue
+        for inst in universe:
+            inst_id = inst.inst_id
+            try:
+                snapshot = fetch_funding_snapshot(pool, inst_id)
+            except Exception as exc:
+                logger.error(f"Funding fetch failed for {inst_id}: {exc}", exc_info=True)
+                app.emit_error_ops(str(exc))
+                continue
 
-        if snapshot.timestamp != last_ts:
-            last_ts = snapshot.timestamp
+            if snapshot.timestamp == last_ts[inst_id]:
+                continue
+
+            last_ts[inst_id] = snapshot.timestamp
             total += 1
             try:
                 app.strategy.ack_funding(snapshot)
                 app.emit_tick_ops()
             except Exception as exc:
                 logger.error(
-                    f"Strategy ack_funding failed timestamp={snapshot.timestamp} "
+                    f"Strategy ack_funding failed inst={inst_id} "
+                    f"timestamp={snapshot.timestamp} "
                     f"rate={snapshot.funding_rate} total_processed={total}: {exc}",
                     exc_info=True,
                 )
@@ -74,7 +78,13 @@ def main():
     provider = AppProvider()
     setup = load_config("strategy", args.setup, StrategyConfig)
 
-    if setup.data_source == "funding":
+    is_funding = setup.data_source == "funding"
+
+    universe: Universe | None = None
+    if setup.universe:
+        universe = provider.universe.discover(setup.universe)
+
+    if is_funding:
         provider.simulator = SimulateExchange(
             initial_equity=setup.funding.notional,
             fee_rate=0.0,
@@ -86,12 +96,15 @@ def main():
         )
         exchange = provider.okx_exchange
 
+    instrument_label = ",".join(universe.inst_ids) if universe else setup.instrument
     provider.recorder.bootstrap(
-        setup_name=args.setup, instrument=setup.instrument,
+        setup_name=args.setup, instrument=instrument_label,
         strategy=setup.strategy,
     )
 
-    strategy = provider.strategy_factory.build(setup, exchange=exchange)
+    strategy = provider.strategy_factory.build(
+        setup, exchange=exchange, universe=universe,
+    )
     app = PaperApp(provider, strategy, exchange)
     logger = app.logger
 
@@ -99,8 +112,8 @@ def main():
         logger.info(f"Paper session_id {app.session_id}")
 
         try:
-            if setup.data_source == "funding":
-                _run_funding(app, provider, setup)
+            if is_funding:
+                _run_funding(app, provider, universe)
             else:
                 total = _run_trade(app)
                 logger.info(f"Paper completed total_trades={total}")

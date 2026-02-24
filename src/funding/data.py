@@ -78,4 +78,5 @@ def fetch_funding_snapshot(pool: OkxClientPool, perp_inst_id: str) -> FundingSna
         funding_rate=rate.rate,
         spot_price=prices.spot_price,
         perp_price=prices.perp_price,
+        inst_id=perp_inst_id,
     )

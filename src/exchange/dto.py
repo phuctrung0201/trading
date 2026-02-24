@@ -30,3 +30,4 @@ class FundingSnapshot:
     funding_rate: float
     spot_price: float
     perp_price: float
+    inst_id: str = ""

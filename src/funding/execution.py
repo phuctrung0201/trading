@@ -45,7 +45,7 @@ def enter_position(
 
     direction: "long_spot" (long spot + short perp) or "short_spot".
     """
-    quote = config.universe.quote
+    quote = config.quote
     spot_id = _spot_inst_id(pair, quote)
     perp_id = _perp_inst_id(pair, quote)
     notional = config.notional

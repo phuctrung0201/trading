@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from src.app.config import UniverseConfig, ScreeningConfig
 from src.app.logger import AppLogger
 from src.okx.pool import OkxClientPool
+from src.universe import Universe
 
 
 class _Counter:
@@ -22,7 +23,7 @@ class _Counter:
 
 
 @dataclass
-class Instrument:
+class TradeInstrument:
     inst_id: str
     daily_volume_usd: float
     trades: list[dict]
@@ -48,59 +49,29 @@ class UniverseFetcher:
         self._screening_cfg = screening_cfg
         self._logger = logger
 
-    def fetch(self) -> list[Instrument]:
-        raw = self._discover()
-        self._logger.info(f"Universe discovered {len(raw)} instruments")
-
-        filtered = self._filter_volume(raw)
-        self._logger.info(f"Universe after volume filter: {len(filtered)}")
-
-        return self._fetch_trades(filtered)
-
-    def _discover(self) -> list[dict]:
-        data = self._pool.public_get(
-            "/api/v5/public/instruments",
-            params={"instType": self._cfg.type},
+    def fetch(self) -> list[TradeInstrument]:
+        universe = Universe.discover(
+            self._pool, self._cfg, self._logger,
+            top_n=200,
         )
-        return [
-            d for d in data
-            if d.get("settleCcy", "") == self._cfg.quote
-            and d.get("state", "") == "live"
-        ]
+        self._logger.info(f"Universe after volume filter: {len(universe)}")
 
-    def _filter_volume(self, raw_instruments: list[dict]) -> list[tuple[str, float]]:
-        tickers = self._pool.public_get(
-            "/api/v5/market/tickers",
-            params={"instType": self._cfg.type},
-        )
-        vol_map: dict[str, float] = {}
-        for t in tickers:
-            inst_id = t.get("instId", "")
-            vol_usd = float(t.get("volCcy24h", "0"))
-            vol_map[inst_id] = vol_usd
+        return self._fetch_trades(universe)
 
-        result: list[tuple[str, float]] = []
-        for inst in raw_instruments:
-            inst_id = inst["instId"]
-            vol = vol_map.get(inst_id, 0.0)
-            if vol >= self._cfg.min_24h_volume_usd:
-                result.append((inst_id, vol))
-        return result
-
-    def _fetch_trades(self, instruments: list[tuple[str, float]]) -> list[Instrument]:
+    def _fetch_trades(self, universe: Universe) -> list[TradeInstrument]:
         lookback_ms = self._screening_cfg.lookback_hours * 3600 * 1000
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         start_ms = now_ms - lookback_ms
 
         specs = [
-            (inst_id, vol, start_ms, now_ms)
-            for inst_id, vol in instruments
+            (inst.inst_id, start_ms, now_ms)
+            for inst in universe
         ]
 
         total = len(specs)
         self._logger.info(f"Fetching trades for {total} instruments concurrently")
         counter = _Counter(total)
-        results: list[Instrument] = self._pool.map(
+        results: list[TradeInstrument] = self._pool.map(
             lambda pool, s: self._fetch_one(pool, s, counter),
             specs,
             max_workers=min(self._pool.pool_size, len(specs)),
@@ -110,10 +81,10 @@ class UniverseFetcher:
     def _fetch_one(
         self,
         pool: OkxClientPool,
-        spec: tuple[str, float, int, int],
+        spec: tuple[str, int, int],
         counter: _Counter,
-    ) -> Instrument:
-        inst_id, vol, start_ms, end_ms = spec
+    ) -> TradeInstrument:
+        inst_id, start_ms, end_ms = spec
         trades: list[dict] = []
         cursor = str(end_ms)
 
@@ -159,4 +130,4 @@ class UniverseFetcher:
         unique.sort(key=lambda t: int(t["ts"]))
         done = counter.increment()
         self._logger.info(f"[{done}/{counter.total}] {inst_id}: {len(unique)} trades")
-        return Instrument(inst_id=inst_id, daily_volume_usd=vol, trades=unique)
+        return TradeInstrument(inst_id=inst_id, daily_volume_usd=0.0, trades=unique)

@@ -165,9 +165,7 @@ class FundingConfig(Config):
     exit_rule: str = "flip_or_collapse"
     notional: float = 1000.0
     retry_count: int = 3
-    universe: UniverseConfig = field(default_factory=lambda: UniverseConfig(
-        quote="USDT", type="SWAP", min_24h_volume_usd=10_000_000,
-    ))
+    quote: str = "USDT"
 
 
 @dataclass
@@ -176,6 +174,7 @@ class StrategyConfig(Config):
     leverage: int = 1
     strategy: str = "drawdown_crossma"
     data_source: str = "trade"
+    universe: UniverseConfig | None = None
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     crossma: CrossMAConfig = field(default_factory=CrossMAConfig)
     drawdown: DrawdownConfig = field(default_factory=DrawdownConfig)

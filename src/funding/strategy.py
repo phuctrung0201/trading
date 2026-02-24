@@ -7,6 +7,7 @@ from src.app.logger import AppLogger
 from src.clickhouse.recorder import Recorder
 from src.exchange.adapter import ExchangeAdapter
 from src.exchange.dto import FundingSnapshot, MarketTrade, Position
+from src.universe import Universe
 from src.strategy.adapter import SignalResult, StrategyAdapter
 
 
@@ -33,17 +34,18 @@ class BacktestResult:
 
 
 class FundingStrategy(StrategyAdapter):
-    """Funding capture strategy on 8h snapshots (backtest or live).
+    """Multi-instrument funding capture strategy on 8h snapshots.
 
-    Extends StrategyAdapter to share the same infrastructure as other
-    strategies: Recorder for ClickHouse events, SimulateExchange for
-    equity tracking, and the standard event/measurement pipeline.
+    Receives a universe of instrument IDs at bootstrap and manages
+    independent positions per instrument.  Each position gets an equal
+    share of the configured notional (``notional / universe_size``).
     """
 
     def __init__(self, recorder: Recorder, logger: AppLogger):
         super().__init__(recorder=recorder, logger=logger)
         self._config: FundingConfig | None = None
-        self._sim_position: SimPosition | None = None
+        self._universe: Universe = Universe([])
+        self._positions: dict[str, SimPosition] = {}
         self._funding_earned: float = 0.0
         self._rebalance_count: int = 0
         self._step_count: int = 0
@@ -53,10 +55,16 @@ class FundingStrategy(StrategyAdapter):
         self._fee_rate: float = 0.001
         self._initial_equity: float = 0.0
 
-    def bootstrap(self, exchange: ExchangeAdapter, config: FundingConfig):
+    def bootstrap(
+        self,
+        exchange: ExchangeAdapter,
+        config: FundingConfig,
+        universe: Universe,
+    ):
         super().bootstrap(exchange)
         self._config = config
         self._initial_equity = config.notional
+        self._universe = universe
 
     def ack_trade(self, trade: MarketTrade):
         raise NotImplementedError("Use ack_funding for funding strategies")
@@ -64,30 +72,25 @@ class FundingStrategy(StrategyAdapter):
     def ack_funding(self, snapshot: FundingSnapshot) -> None:
         self._step_count += 1
         trade = self._snapshot_as_trade(snapshot)
+        inst_id = snapshot.inst_id
 
         self.exchange.set_price(snapshot.spot_price)
         self._mark_to_market()
 
-        if self._sim_position is not None:
-            self._collect_funding(snapshot, trade)
+        pos = self._positions.get(inst_id)
 
-        if self._sim_position is not None:
-            if self._should_exit(snapshot):
-                self._exit(snapshot, trade)
+        if pos is not None:
+            self._collect_funding(pos, snapshot, trade)
+
+        if pos is not None:
+            if self._should_exit(pos, snapshot):
+                self._exit(pos, inst_id, snapshot, trade)
             else:
-                self._manage(snapshot, trade)
+                self._manage(pos, snapshot, trade)
+        elif self._should_enter(snapshot):
+            self._enter(inst_id, snapshot, trade)
 
-        if self._sim_position is None:
-            if self._should_enter(snapshot):
-                self._enter(snapshot, trade)
-
-        if self._sim_position is not None and self._current_position is not None:
-            total_notional = (
-                self._sim_position.spot_qty * snapshot.spot_price
-                + self._sim_position.perp_qty * snapshot.perp_price
-            )
-            self._current_position.size = total_notional
-
+        self._sync_aggregate_position()
         self._track_max_drawdown()
         self._emit_trade_measurement(trade, SignalResult())
 
@@ -103,9 +106,16 @@ class FundingStrategy(StrategyAdapter):
             positions_closed=self._positions_closed,
         )
 
+    # ------------------------------------------------------------------
+    # internals
+    # ------------------------------------------------------------------
+
+    def _per_position_notional(self) -> float:
+        return self._config.notional / max(len(self._universe), 1)
+
     def _snapshot_as_trade(self, snap: FundingSnapshot) -> MarketTrade:
         return MarketTrade(
-            trade_id=str(snap.timestamp),
+            trade_id=f"{snap.inst_id}:{snap.timestamp}",
             timestamp=str(snap.timestamp),
             price=snap.spot_price,
             size=0.0,
@@ -115,20 +125,17 @@ class FundingStrategy(StrategyAdapter):
     def _should_enter(self, snap: FundingSnapshot) -> bool:
         return abs(snap.funding_rate) >= self._config.min_funding_rate
 
-    def _enter(self, snap: FundingSnapshot, trade: MarketTrade) -> None:
+    def _enter(self, inst_id: str, snap: FundingSnapshot, trade: MarketTrade) -> None:
         direction = "long_spot" if snap.funding_rate > 0 else "short_spot"
-        notional = self.exchange.get_equity()
+        notional = self._per_position_notional()
         spot_qty = notional / snap.spot_price
         perp_qty = notional / snap.perp_price
 
         fee = notional * self._fee_rate * 2
         self.exchange.adjust_equity(-fee)
 
-        side = "buy" if direction == "long_spot" else "sell"
-        self._current_position = Position(side=side, size=notional, price=snap.spot_price)
-
-        self._sim_position = SimPosition(
-            pair="SIM",
+        self._positions[inst_id] = SimPosition(
+            pair=inst_id,
             direction=direction,
             spot_qty=spot_qty,
             perp_qty=perp_qty,
@@ -138,18 +145,20 @@ class FundingStrategy(StrategyAdapter):
         )
         self._positions_opened += 1
         self._logger.info(
-            f"enter dir={direction} notional={notional:.2f} rate={snap.funding_rate:.6f}"
+            f"enter {inst_id} dir={direction} notional={notional:.2f} "
+            f"rate={snap.funding_rate:.6f}"
         )
         self._emit_event(
             trade, "open",
             fill_price=snap.spot_price,
             signal=direction,
-            reason=f"funding rate {snap.funding_rate:.6f}",
+            reason=f"{inst_id} funding rate {snap.funding_rate:.6f}",
             fee=fee,
         )
 
-    def _collect_funding(self, snap: FundingSnapshot, trade: MarketTrade) -> None:
-        pos = self._sim_position
+    def _collect_funding(
+        self, pos: SimPosition, snap: FundingSnapshot, trade: MarketTrade,
+    ) -> None:
         perp_notional = pos.perp_qty * snap.perp_price
         if pos.direction == "long_spot":
             payment = perp_notional * snap.funding_rate
@@ -158,8 +167,7 @@ class FundingStrategy(StrategyAdapter):
         self._funding_earned += payment
         self.exchange.adjust_equity(payment)
 
-    def _should_exit(self, snap: FundingSnapshot) -> bool:
-        pos = self._sim_position
+    def _should_exit(self, pos: SimPosition, snap: FundingSnapshot) -> bool:
         if pos.direction == "long_spot" and snap.funding_rate < 0:
             return True
         if pos.direction == "short_spot" and snap.funding_rate > 0:
@@ -168,8 +176,10 @@ class FundingStrategy(StrategyAdapter):
             return True
         return False
 
-    def _exit(self, snap: FundingSnapshot, trade: MarketTrade) -> None:
-        pos = self._sim_position
+    def _exit(
+        self, pos: SimPosition, inst_id: str,
+        snap: FundingSnapshot, trade: MarketTrade,
+    ) -> None:
         spot_pnl = pos.spot_qty * (snap.spot_price - pos.spot_entry_price)
         perp_pnl = pos.perp_qty * (pos.perp_entry_price - snap.perp_price)
         if pos.direction == "short_spot":
@@ -182,22 +192,22 @@ class FundingStrategy(StrategyAdapter):
         self.exchange.adjust_equity(basis_pnl - fee)
 
         self._positions_closed += 1
+        del self._positions[inst_id]
         self._logger.info(
-            f"exit basis_pnl={basis_pnl:.2f} fee={fee:.2f} "
+            f"exit {inst_id} basis_pnl={basis_pnl:.2f} fee={fee:.2f} "
             f"equity={self.exchange.get_equity():.2f}"
         )
         self._emit_event(
             trade, "close",
             fill_price=snap.spot_price,
             pnl=basis_pnl,
-            reason=f"funding rate {snap.funding_rate:.6f}",
+            reason=f"{inst_id} funding rate {snap.funding_rate:.6f}",
             fee=fee,
         )
-        self._sim_position = None
-        self._current_position = None
 
-    def _manage(self, snap: FundingSnapshot, trade: MarketTrade) -> None:
-        pos = self._sim_position
+    def _manage(
+        self, pos: SimPosition, snap: FundingSnapshot, trade: MarketTrade,
+    ) -> None:
         spot_notional = pos.spot_qty * snap.spot_price
         perp_notional = pos.perp_qty * snap.perp_price
         mid = (spot_notional + perp_notional) / 2
@@ -216,13 +226,27 @@ class FundingStrategy(StrategyAdapter):
         pos.spot_qty = new_spot_qty
         pos.perp_qty = new_perp_qty
         self._rebalance_count += 1
-        self._logger.info(f"rebalance drift={drift:.2f} band={band:.2f} fee={fee:.4f}")
+        self._logger.info(
+            f"rebalance {pos.pair} drift={drift:.2f} band={band:.2f} fee={fee:.4f}"
+        )
         self._emit_event(
             trade, "resize",
             fill_price=snap.spot_price,
-            reason=f"rebalance drift={drift:.2f}",
+            reason=f"rebalance {pos.pair} drift={drift:.2f}",
             fee=fee,
         )
+
+    def _sync_aggregate_position(self) -> None:
+        if not self._positions:
+            self._current_position = None
+            return
+        total = sum(
+            p.spot_qty * p.spot_entry_price + p.perp_qty * p.perp_entry_price
+            for p in self._positions.values()
+        )
+        if self._current_position is None:
+            self._current_position = Position(side="buy", size=total)
+        self._current_position.size = total
 
     def _track_max_drawdown(self) -> None:
         dd = self._calculate_drawdown()

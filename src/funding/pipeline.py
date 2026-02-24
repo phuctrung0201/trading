@@ -14,6 +14,7 @@ from src.funding.execution import (
     exit_position,
 )
 from src.funding.screen import FundingCandidate, FundingScreener
+from src.universe import Universe
 from src.okx.pool import OkxClientPool
 from src.okx.trading import OkxTrading
 
@@ -38,16 +39,14 @@ class FundingPipeline:
         self._logger = logger
         self._positions: list[FundingPosition] = []
 
-    def run(self) -> None:
+    def run(self, universe: Universe) -> None:
         session_id = uuid.uuid4().hex
         self._logger.info(f"FundingPipeline session {session_id}")
+        self._logger.info(f"Universe: {len(universe)} pairs")
 
         self._write_session(session_id, "RUNNING")
 
         try:
-            universe = self._discover_universe()
-            self._logger.info(f"Universe: {len(universe)} pairs")
-
             screener = FundingScreener(self._pool, self._config, self._logger)
             candidates = screener.screen(universe)
             self._logger.info(f"Candidates: {len(candidates)}")
@@ -66,39 +65,6 @@ class FundingPipeline:
             self._write_session(session_id, "FAILED", error=str(exc))
             self._logger.error(f"FundingPipeline FAILED: {exc}", exc_info=True)
             raise
-
-    def _discover_universe(self) -> list[tuple[str, str]]:
-        """Return list of (pair, perp_inst_id) from OKX instruments."""
-        cfg = self._config.universe
-        data = self._pool.public_get(
-            "/api/v5/public/instruments",
-            params={"instType": cfg.type},
-        )
-
-        tickers = self._pool.public_get(
-            "/api/v5/market/tickers",
-            params={"instType": cfg.type},
-        )
-        vol_map: dict[str, float] = {}
-        for t in tickers:
-            vol_map[t.get("instId", "")] = float(t.get("volCcy24h", "0"))
-
-        universe: list[tuple[str, str]] = []
-        for inst in data:
-            if inst.get("settleCcy", "") != cfg.quote:
-                continue
-            if inst.get("state", "") != "live":
-                continue
-            inst_id = inst["instId"]
-            vol = vol_map.get(inst_id, 0.0)
-            if vol < cfg.min_24h_volume_usd:
-                continue
-            pair = inst_id.replace(f"-{cfg.quote}-SWAP", "")
-            universe.append((pair, inst_id))
-
-        universe.sort(key=lambda x: vol_map.get(x[1], 0.0), reverse=True)
-        top_n = 10
-        return universe[:top_n]
 
     def _phase_enter(self, candidates: list[FundingCandidate]) -> None:
         active_pairs = {p.pair for p in self._positions}

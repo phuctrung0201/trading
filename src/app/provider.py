@@ -13,6 +13,7 @@ from src.exchange.simulator import SimulateExchange
 from src.okx.client import OkxClient
 from src.okx.exchange import OkxExchange
 from src.strategy.factory import StrategyFactory
+from src.universe import UniverseProvider
 
 
 class AppProvider:
@@ -58,5 +59,10 @@ class AppProvider:
 
         self.strategy_factory = StrategyFactory(
             recorder=self.recorder,
+            logger=self.logger,
+        )
+
+        self.universe = UniverseProvider(
+            pool=self.okx_client.pool,
             logger=self.logger,
         )

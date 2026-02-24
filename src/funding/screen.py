@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from src.app.config import FundingConfig
 from src.app.logger import AppLogger
 from src.funding.data import get_funding_rate, FundingRate
+from src.universe import Universe
 from src.okx.pool import OkxClientPool
 
 
@@ -22,14 +23,14 @@ class FundingScreener:
         self._config = config
         self._logger = logger
 
-    def screen(self, universe: list[tuple[str, str]]) -> list[FundingCandidate]:
-        """Screen a universe of (pair, perp_inst_id) and return candidates.
+    def screen(self, universe: Universe) -> list[FundingCandidate]:
+        """Screen instruments in the universe and return candidates.
 
         A pair passes if |funding_rate| >= min_funding_rate.
         """
         candidates: list[FundingCandidate] = []
-        for pair, perp_inst_id in universe:
-            result = self._screen_one(pair, perp_inst_id)
+        for inst in universe:
+            result = self._screen_one(inst.pair, inst.inst_id)
             if result is not None:
                 candidates.append(result)
         return candidates

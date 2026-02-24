@@ -9,7 +9,7 @@ from statsmodels.tsa.stattools import adfuller
 
 from src.app.config import ScreeningConfig
 from src.app.logger import AppLogger
-from src.portfolio.universe import Instrument, _parse_bucket_interval
+from src.portfolio.universe import TradeInstrument, _parse_bucket_interval
 
 
 @dataclass
@@ -138,7 +138,7 @@ class Screener:
         self._logger = logger
         self._interval_sec = _parse_bucket_interval(screening_cfg.bucket_interval)
 
-    def screen(self, instruments: list[Instrument]) -> list[ScreenResult]:
+    def screen(self, instruments: list[TradeInstrument]) -> list[ScreenResult]:
         results: list[ScreenResult] = []
         for i, inst in enumerate(instruments):
             self._logger.info(
@@ -150,7 +150,7 @@ class Screener:
             self._logger.info(f"  {inst.inst_id}: {status}")
         return results
 
-    def _screen_one(self, inst: Instrument) -> ScreenResult:
+    def _screen_one(self, inst: TradeInstrument) -> ScreenResult:
         prices = _bucket_prices(inst.trades, self._interval_sec)
 
         min_points = self._cfg.sma_length + 10
